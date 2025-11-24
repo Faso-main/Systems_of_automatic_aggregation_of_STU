@@ -1,0 +1,37 @@
+npm i node-fetch
+
+import fetch from "node-fetch"; // или require('node-fetch') если CommonJS
+
+// === ML ENDPOINTS ===
+app.get("/api/ml/health", async (req, res) => {
+  try {
+    const r = await fetch("http://127.0.0.1:8000/health");
+    const data = await r.json();
+    res.json(data);
+  } catch (err) {
+    console.error("ML health error:", err);
+    res.status(500).json({ error: "ML service unreachable" });
+  }
+});
+
+app.post("/api/ml/recommendations", async (req, res) => {
+  try {
+    const r = await fetch("http://127.0.0.1:8000/api/recommendations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body),
+    });
+
+    const data = await r.json();
+    res.status(r.status).json(data);
+  } catch (err) {
+    console.error("ML recommend error:", err);
+    res.status(500).json({ error: "ML service unreachable" });
+  }
+});
+
+curl http://127.0.0.1:5000/api/ml/health
+
+curl -X POST http://127.0.0.1:5000/api/ml/recommendations \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"11111111-1111-1111-1111-111111111111","limit":3}'

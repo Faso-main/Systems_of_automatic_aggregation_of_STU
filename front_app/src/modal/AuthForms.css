@@ -1,0 +1,64 @@
+/* components/AuthForms.css */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin: 5px;
+}
+
+.form-group label {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.form-group input {
+  background: whitesmoke;
+  padding: 0.5rem 0.8rem;
+  color: black;
+  border: 2px solid black;
+  border-radius: var(--border-radius);
+  font-size: 1rem;
+  transition: var(--transition);
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.btn-full {
+  width: 100%;
+  padding: 0.875rem;
+  font-size: 1rem;
+}
+
+.auth-switch {
+  text-align: center;
+  margin-top: 1rem;
+}
+
+.auth-switch p {
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.auth-switch button {
+  background: none;
+  border: none;
+  color: var(--primary-color);
+  cursor: pointer;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.auth-switch button:hover {
+  color: var(--primary-hover);
+}

@@ -1,0 +1,404 @@
+/* Header Styles */
+.header {
+  background-color: var(--white);
+  border-bottom: 1px solid var(--border-color);
+  padding: 1rem 0;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  backdrop-filter: blur(10px);
+}
+
+.header-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 2rem;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 1rem;
+}
+
+.logo h1 {
+  color: var(--primary-color);
+  font-size: clamp(1.5rem, 4vw, 2rem);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* Поисковая строка в шапке */
+.header-search {
+  display: flex;
+  justify-content: center;
+}
+
+.search-bar {
+  display: flex;
+  width: 100%;
+  max-width: 600px;
+  min-width: 200px;
+  background: var(--white);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  transition: var(--transition);
+}
+
+.search-bar:focus-within {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.search-input {
+  flex: 1;
+  padding: 0.75rem 1.5rem;
+  border: none;
+  outline: none;
+  font-size: 1rem;
+  background: transparent;
+  min-width: 120px;
+  color: black;
+}
+
+.search-input::placeholder {
+  color: var(--text-light);
+  transition: var(--transition);
+}
+
+.search-input:focus::placeholder {
+  color: var(--text-secondary);
+}
+
+.search-btn {
+  padding: 0.75rem 1.5rem;
+  background: var(--primary-color);
+  border: none;
+  color: var(--white);
+  cursor: pointer;
+  transition: var(--transition);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.search-btn:hover {
+  background: var(--primary-hover);
+}
+
+.search-btn:active {
+  transform: scale(0.95);
+}
+
+/* Анимация при вводе текста */
+.search-input:not(:placeholder-shown) {
+  background-color: var(--accent-color);
+}
+
+/* Индикатор активности поиска */
+.searching .search-btn {
+  background-color: var(--primary-hover);
+  animation: pulse 1.5s infinite;
+}
+
+/* Header Actions */
+.header-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.user-icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.75rem;
+  border-radius: var(--border-radius);
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+}
+
+.user-icon-btn:hover {
+  background-color: var(--accent-color);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+
+/* Products Container */
+.products-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+/* Адаптивность */
+@media (max-width: 1024px) {
+  .header-container {
+    grid-template-columns: auto 1fr auto;
+    gap: 1.5rem;
+    padding: 0 1.5rem;
+  }
+  
+  .search-bar {
+    max-width: 500px;
+  }
+}
+
+@media (max-width: 768px) {
+  .header-container {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: 
+      "logo actions"
+      "search search";
+    gap: 1rem;
+    padding: 0 1rem;
+  }
+  
+  .logo {
+    grid-area: logo;
+  }
+  
+  .header-search {
+    grid-area: search;
+  }
+  
+  .header-actions {
+    grid-area: actions;
+  }
+  
+  .search-bar {
+    max-width: 100%;
+  }
+
+  
+  .products-container {
+    padding: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .header-container {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: 
+      "logo actions"
+      "search search";
+    gap: 0.5rem;
+  }
+  
+  .search-input {
+    padding: 0.75rem 1rem;
+    font-size: 0.9rem;
+  }
+  
+  .search-btn {
+    padding: 0.75rem 1rem;
+  }
+  
+  .user-icon-btn {
+    width: 48px;
+    height: 48px;
+    padding: 0.5rem;
+  }
+  
+  .user-icon-btn svg {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/* Большие экраны */
+@media (min-width: 1920px) {
+  .header-container {
+    max-width: 1600px;
+  }
+}
+
+/* Добавить в Header.css */
+.loading-spinner-small {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #f3f3f3;
+  border-top: 2px solid var(--primary-color);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.user-icon-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Header.css - добавьте эти стили */
+
+.user-icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.75rem;
+  border-radius: var(--border-radius);
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.user-icon-btn:hover {
+  background-color: var(--accent-color);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+/* Стиль для авторизованного пользователя */
+.user-icon-btn.user-authenticated {
+  color: #10b981; /* Зеленый цвет */
+  background-color: rgba(16, 185, 129, 0.1); /* Светло-зеленый фон */
+}
+
+.user-icon-btn.user-authenticated:hover {
+  color: #059669; /* Темно-зеленый при наведении */
+  background-color: rgba(16, 185, 129, 0.2);
+}
+
+/* Стиль для кнопки выхода */
+.user-icon-btn.logout-btn {
+  color: #ef4444; /* Красный цвет */
+  background-color: rgba(239, 68, 68, 0.1); /* Светло-красный фон */
+}
+
+.user-icon-btn.logout-btn:hover {
+  color: #dc2626; /* Темно-красный при наведении */
+  background-color: rgba(239, 68, 68, 0.2);
+}
+
+/* Индикатор онлайн-статуса */
+.user-icon-btn.user-authenticated::after {
+  content: '';
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  background-color: #10b981;
+  border-radius: 50%;
+  border: 2px solid var(--white);
+}
+
+.loading-spinner-small {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #f3f3f3;
+  border-top: 2px solid currentColor;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.user-icon-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .user-icon-btn {
+    width: 48px;
+    height: 48px;
+    padding: 0.5rem;
+  }
+  
+  .user-icon-btn.user-authenticated::after {
+    top: 6px;
+    right: 6px;
+    width: 6px;
+    height: 6px;
+  }
+}
+
+@media (max-width: 480px) {
+  .user-icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+  
+  .user-icon-btn svg {
+    width: 28px;
+    height: 28px;
+  }
+  
+  .user-icon-btn.user-authenticated::after {
+    top: 5px;
+    right: 5px;
+    width: 5px;
+    height: 5px;
+  }
+}
+
+/* Header.css - добавляем эти стили */
+
+/* Стиль для кнопки создания закупки */
+.user-icon-btn.create-procurement-btn {
+  color: #8b5cf6; /* Фиолетовый цвет */
+  background-color: rgba(139, 92, 246, 0.1); /* Светло-фиолетовый фон */
+}
+
+.user-icon-btn.create-procurement-btn:hover {
+  color: #7c3aed; /* Темно-фиолетовый при наведении */
+  background-color: rgba(139, 92, 246, 0.2);
+}
+
+/* Адаптивность для новых кнопок */
+@media (max-width: 768px) {
+  .header-actions {
+    gap: 0.5rem;
+  }
+  
+  .user-icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+  
+  .user-icon-btn svg {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+@media (max-width: 480px) {
+  .header-actions {
+    gap: 0.25rem;
+  }
+  
+  .user-icon-btn {
+    width: 40px;
+    height: 40px;
+    padding: 0.4rem;
+  }
+  
+  .user-icon-btn svg {
+    width: 22px;
+    height: 22px;
+  }
+}
