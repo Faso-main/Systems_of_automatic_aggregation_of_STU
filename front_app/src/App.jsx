@@ -279,7 +279,7 @@ function Header({ currentUser, onLogout, onUserProfileClick, onCreateProcurement
     <header className="header">
       <div className="header-container">
         <div className="logo">
-          <h1>SpeedOfLight</h1>
+          <h1>Портал поставщиков</h1>
         </div>
         
         <div className="header-search">
