@@ -1,8 +1,3 @@
-# SMART_ONTOLOGY_2025.py
-# Самое интеллектуальное решение на рынке РФ
-# 9–14 минут → 800–1100 категорий с идеальными характеристиками
-# Работает на любом тендере, даже если ты его никогда не видел
-
 import re
 import json
 import numpy as np
@@ -13,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 # ============================= КРИТИЧНО ВАЖНЫЕ НАСТРОЙКИ =============================
-CSV_PATH = "py_back/rexemp/data/split.csv"
+CSV_PATH = "py_back/rexexp/data/split.csv"
 MAX_ITEMS = 350_000
 N_CLUSTERS = 1050
 MIN_SIZE = 38
