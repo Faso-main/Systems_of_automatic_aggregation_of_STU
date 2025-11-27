@@ -13,8 +13,8 @@ MAX_ITEMS = 350_000
 N_CLUSTERS = 1050
 MIN_SIZE = 38
 
-MODEL_NAME = "DeepPavlov/rubert-base-cased-conversational"  # или вот эта ↓ если есть GPU
-# MODEL_NAME = "ai-forever/sbert_large_mt_nlu_ru"  # если хочешь максимум качества
+# MODEL_NAME = "DeepPavlov/rubert-base-cased-conversational"  # или вот эта ↓ если есть GPU
+MODEL_NAME = "ai-forever/sbert_large_mt_nlu_ru"  # если хочешь максимум качества
 
 print("Запуск самого умного решения 2025 года...")
 
@@ -136,7 +136,7 @@ final = {
 }
 
 Path("result").mkdir(exist_ok=True)
-with open("result/SMART_ONTOLOGY_2025.json", "w", encoding="utf-8") as f:
+with open("result/SMART_ONTOLOGY_2025_LLM.json", "w", encoding="utf-8") as f:
     json.dump(final, f, ensure_ascii=False, indent=2)
 
 print(f"Result: {len(result)}")
