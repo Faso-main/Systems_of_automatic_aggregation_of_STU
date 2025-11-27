@@ -9,32 +9,28 @@ import pandas as pd
 
 # ============================= КРИТИЧНО ВАЖНЫЕ НАСТРОЙКИ =============================
 CSV_PATH = "py_back/rexexp/data/split.csv"
+CSV_PATH = "py_back/rexexp/data/split.csv"
 MAX_ITEMS = 350_000
 N_CLUSTERS = 1050
 MIN_SIZE = 38
 
-# Самая умная модель 2025 года для русского языка (в 3 раза лучше all-MiniLM)
 MODEL_NAME = "DeepPavlov/rubert-base-cased-conversational"  # или вот эта ↓ если есть GPU
 # MODEL_NAME = "ai-forever/sbert_large_mt_nlu_ru"  # если хочешь максимум качества
 
 print("Запуск самого умного решения 2025 года...")
 
-# ============================= МОДЕЛЬ (самая умная для русского) =============================
 model = SentenceTransformer(MODEL_NAME)
 model.max_seq_length = 256
 
-# ============================= ЧИТАЕМ + ИНТЕЛЛЕКТУАЛЬНАЯ ФИЛЬТРАЦИЯ =============================
 print("Интеллектуальная фильтрация...")
 df = pd.read_csv(CSV_PATH, dtype=str, low_memory=False).fillna("")
 
-# Объединяем всё, что может нести смысл
 df['full_text'] = (
     df['id2'].fillna("") + " " +
     df['specification'].fillna("") + " " +
     df.iloc[:, 3:10].fillna("").apply(" ".join, axis=1)  # любые описания
 )
 
-# Жёсткий, но умный фильтр
 trash_patterns = r"услуг|окпд|фз-|поставк|ремонт|расходн|принадлеж|канцеляр|моющ|дезинф"
 good = df[
     df['full_text'].str.len() > 35 &
@@ -44,7 +40,6 @@ good = df[
 texts = good['full_text'].tolist()
 print(f"Отобрано интеллектуальных строк: {len(texts):,}")
 
-# ============================= ИНТЕЛЛЕКТУАЛЬНЫЕ ЭМБЕДДИНГИ =============================
 print("Генерируем глубокие семантические эмбеддинги...")
 embeddings = model.encode(
     texts,
@@ -54,15 +49,13 @@ embeddings = model.encode(
     convert_to_numpy=True
 )
 
-# ============================= АДАПТИВНАЯ КЛАСТЕРИЗАЦИЯ =============================
 print("Адаптивная кластеризация...")
 kmeans = MiniBatchKMeans(n_clusters=N_CLUSTERS, batch_size=15000, random_state=42)
 labels = kmeans.fit_predict(embeddings)
 
-# ============================= МАСОЧНОЕ ИЗВЛЕЧЕНИЕ ХАРАКТЕРИСТИК (самое умное) =============================
 print("Масочное извлечение характеристик...")
 
-# Самые умные маски 2025 года
+# маски
 PATTERNS = [
     r'([дД]иаметр.*?):?\s*([0-9.,\s]+ ?[мк]?м)',
     r'([дД]лина.*?):?\s*([0-9.,\s]+ ?[мк]?м)',
@@ -90,11 +83,9 @@ def extract_features(text):
             features.append(f"{key}: {val}")
     return features
 
-# ============================= ФИНАЛЬНАЯ СБОРКА =============================
 result = {}
 all_features_global = defaultdict(int)
 
-# Сначала собираем все характеристики
 cluster_features = defaultdict(list)
 for idx, label in enumerate(labels):
     feats = extract_features(texts[idx])
@@ -102,18 +93,15 @@ for idx, label in enumerate(labels):
     for f in feats:
         all_features_global[f] += 1
 
-# Потом формируем категории
 for label in cluster_features:
     feats = cluster_features[label]
     if len(feats) < 8: continue
     
-    # Только уникальные или почти уникальные
     unique = [f for f in feats if all_features_global[f] <= 2]
     if len(unique) < 3:
         unique = Counter(feats).most_common(10)
         unique = [f[0] for f in unique]
     
-    # Умное название категории
     cluster_text = " ".join(texts[i] for i, l in enumerate(labels) if l == label)
     words = re.findall(r"[а-яё]{4,}", cluster_text.lower())
     common = Counter(words).most_common(40)
@@ -125,7 +113,6 @@ for label in cluster_features:
             name = w.capitalize()
             break
     
-    # Красивые характеристики
     nice = []
     for f in unique[:12]:
         if ":" in f:
@@ -138,7 +125,6 @@ for label in cluster_features:
     if len(nice) >= 3:
         result[name] = nice
 
-# ============================= СОХРАНЕНИЕ =============================
 final = {
     "metadata": {
         "source": CSV_PATH,
@@ -154,8 +140,7 @@ Path("result").mkdir(exist_ok=True)
 with open("result/SMART_ONTOLOGY_2025.json", "w", encoding="utf-8") as f:
     json.dump(final, f, ensure_ascii=False, indent=2)
 
-print(f"\nГОТОВО! {len(result)} сверхумных категорий")
-print("Топ-15:")
+print(f"Result: {len(result)}")
 top = sorted(result.items(), key=lambda x: len(x[1]), reverse=True)[:15]
 for i, (cat, feats) in enumerate(top, 1):
     print(f"{i:2}. {cat:<20} → {', '.join(feats[:4])}")
