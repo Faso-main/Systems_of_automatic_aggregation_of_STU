@@ -1,3 +1,4 @@
 node_modules
 py_back/token_query.py
 *.csv
+py_back/rexexp/data/data.rar
