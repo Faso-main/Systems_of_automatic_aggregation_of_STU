@@ -9,7 +9,6 @@ import pandas as pd
 
 # ============================= КРИТИЧНО ВАЖНЫЕ НАСТРОЙКИ =============================
 CSV_PATH = "py_back/rexexp/data/split.csv"
-CSV_PATH = "py_back/rexexp/data/split.csv"
 MAX_ITEMS = 350_000
 N_CLUSTERS = 1050
 MIN_SIZE = 38
