@@ -22,7 +22,7 @@ CSV_PATH = "py_back/rexexp/data/result_itr4.csv"
 OUTPUT_DIR = "result"
 MIN_SUPPORT = 2
 TOP_K = 15
-BATCH_SIZE = 32  # Пакетная обработка для ускорения
+BATCH_SIZE = 32
 
 MODEL_NAME = "cointegrated/rubert-tiny2"
 
@@ -232,15 +232,84 @@ class FastSemanticAnalyzer:
             # Возвращаем уникальные по тексту
             return list(set(characteristics))
 
-# ============================= ЗАГРУЗКА ДАННЫХ (без изменений) =============================
+# ============================= ЗАГРУЗКА ДАННЫХ (ИСПРАВЛЕННАЯ) =============================
 def load_data():
-    # ... тот же код что и раньше ...
-    pass
+    logger.info("Загрузка данных...")
+    
+    def detect_encoding(file_path):
+        with open(file_path, 'rb') as f:
+            return chardet.detect(f.read(10000)).get('encoding', 'utf-8')
+    
+    encoding = detect_encoding(CSV_PATH)
+    df = None
+    
+    try:
+        df = pd.read_csv(CSV_PATH, dtype=str, low_memory=False, encoding=encoding).fillna("")
+        logger.info(f"Успешно загружено с кодировкой: {encoding}")
+    except UnicodeDecodeError:
+        logger.warning(f"Ошибка с кодировкой {encoding}, пробуем другие...")
+        for enc in ['windows-1251', 'latin-1', 'cp1251']:
+            try:
+                df = pd.read_csv(CSV_PATH, dtype=str, low_memory=False, encoding=enc).fillna("")
+                logger.info(f"Успешно загружено с кодировкой: {enc}")
+                break
+            except:
+                continue
+    except Exception as e:
+        logger.error(f"Ошибка загрузки CSV: {e}")
+        try:
+            df = pd.read_csv(CSV_PATH, dtype=str, low_memory=False, encoding='utf-8', on_bad_lines='skip').fillna("")
+            logger.info("Загружено с обработкой ошибок")
+        except Exception as e2:
+            logger.error(f"Критическая ошибка загрузки: {e2}")
+            return None
+    
+    if df is None:
+        logger.error("Не удалось загрузить данные")
+        return None
+    
+    # Проверка колонок
+    required_cols = ['id_сте', 'id_категории', 'название_категории']
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        logger.error(f"Отсутствуют колонки: {missing_cols}")
+        logger.info(f"Доступные колонки: {list(df.columns)}")
+        return None
+    
+    # Собираем все текстовые данные
+    spec_cols = [col for col in df.columns if col.startswith('spec')]
+    text_cols = ['название_категории'] + spec_cols
+    
+    # Добавляем колонки стран если есть
+    country_cols = [col for col in df.columns if 'страна' in col.lower()]
+    text_cols.extend(country_cols)
+    
+    logger.info(f"Колонки для анализа: {text_cols}")
+    
+    # Объединяем все текстовые данные
+    df['all_text_data'] = df[text_cols].apply(
+        lambda row: ' ; '.join([str(x) for x in row if str(x) not in ['nan', '', 'None']]), 
+        axis=1
+    )
+    
+    # Фильтруем пустые
+    initial_count = len(df)
+    df = df[df['all_text_data'].str.len() > 10]
+    
+    logger.info(f"Загружено строк: {initial_count:,}")
+    logger.info(f"После фильтрации: {len(df):,}")
+    logger.info(f"Уникальных категорий: {df['id_категории'].nunique()}")
+    
+    return df
 
 # ============================= ОБРАБОТКА КАТЕГОРИЙ (ОПТИМИЗИРОВАННАЯ) =============================
 def process_categories_fast(dataframe):
     """Быстрая обработка категорий"""
     logger.info("Быстрое извлечение характеристик...")
+    
+    if dataframe is None:
+        logger.error("DataFrame is None, невозможно обработать")
+        return defaultdict(list), {}
     
     extractor = IntelligentCharacteristicsExtractor()
     semantic_analyzer = FastSemanticAnalyzer()
@@ -294,10 +363,50 @@ def generate_fast_ontology(category_characteristics, category_names):
     logger.info(f"Сгенерировано категорий: {len(ontology)}")
     return ontology, category_stats
 
-# ============================= СОХРАНЕНИЕ РЕЗУЛЬТАТОВ (без изменений) =============================
+# ============================= СОХРАНЕНИЕ РЕЗУЛЬТАТОВ =============================
 def save_intelligent_results(ontology, category_stats, total_rows):
-    # ... тот же код что и раньше ...
-    pass
+    """Сохранение результатов умного извлечения"""
+    Path(OUTPUT_DIR).mkdir(exist_ok=True)
+    
+    # ЧИСТАЯ онтология без лишних данных
+    output_data = {
+        "metadata": {
+            "total_processed_rows": total_rows,
+            "categories_with_characteristics": len(ontology),
+            "model_used": MODEL_NAME,
+            "note": "Умная онтология характеристик с семантическим анализом"
+        },
+        "categories": {}
+    }
+    
+    for cat_id, characteristics in ontology.items():
+        output_data["categories"][cat_id] = {
+            "category_name": category_stats[cat_id]["category_name"],
+            "characteristics": characteristics
+        }
+    
+    # Сохраняем JSON
+    json_path = Path(OUTPUT_DIR) / "smart_characteristics_ontology.json"
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(output_data, f, ensure_ascii=False, indent=2)
+    
+    logger.info(f"Умная онтология сохранена: {json_path}")
+    
+    # Сохраняем CSV для анализа
+    csv_data = []
+    for cat_id, cat_data in output_data["categories"].items():
+        for char in cat_data["characteristics"]:
+            csv_data.append({
+                "category_id": cat_id,
+                "category_name": cat_data["category_name"],
+                "characteristic": char
+            })
+    
+    csv_path = Path(OUTPUT_DIR) / "smart_characteristics_analysis.csv"
+    pd.DataFrame(csv_data).to_csv(csv_path, index=False, encoding="utf-8")
+    logger.info(f"CSV для анализа сохранен: {csv_path}")
+    
+    return output_data
 
 # ============================= MAIN =============================
 def main():
@@ -306,6 +415,10 @@ def main():
         
         # Загрузка данных
         data = load_data()
+        
+        if data is None:
+            logger.error("Не удалось загрузить данные, завершение работы")
+            return
         
         # Быстрое извлечение характеристик
         category_chars, category_names = process_categories_fast(data)
