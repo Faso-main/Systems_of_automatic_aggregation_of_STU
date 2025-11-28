@@ -17,7 +17,7 @@ except ImportError:
     tqdm = lambda x: x
 
 # ============================= КОНФИГУРАЦИЯ =============================
-CSV_PATH = "py_back/rexexp/data/result_itr4.xlsx"  # Обнови путь
+CSV_PATH = "py_back/rexexp/data/result_itr4.csv"  # Обнови путь
 OUTPUT_DIR = "result"
 MIN_SUPPORT = 8
 TOP_K = 12
