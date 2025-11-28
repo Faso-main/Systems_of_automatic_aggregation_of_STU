@@ -17,12 +17,13 @@ CSV_PATH = "py_back/rexexp/data/split.csv"
 MIN_ITEMS_PER_CAT = 5
 TOP_FEATURES = 12
 FASTTEXT_MODEL = "cc.ru.300.bin"  # Скачай с https://fasttext.cc/docs/en/crawl-vectors.html
+MODEL_NAME = "ai-forever/sbert_large_mt_nlu_ru"
 
 print("Запуск УЛЬТИМАТИВНОГО решения — характеристики под реальные id2")
 print(f"Модель: ai-forever/sbert_large_mt_nlu_ru + fasttext")
 
 # ============================= МОДЕЛЬ =============================
-model = SentenceTransformer('ai-forever/sbert_large_mt_nlu_ru')
+model = SentenceTransformer(MODEL_NAME)
 model.max_seq_length = 256
 
 # Загружаем fasttext для дедупликации
