@@ -10,6 +10,7 @@ from sentence_transformers import SentenceTransformer, util
 import pandas as pd
 from pathlib import Path
 import torch
+import chardet
 
 try:
     from tqdm import tqdm
@@ -17,7 +18,7 @@ except ImportError:
     tqdm = lambda x: x
 
 # ============================= КОНФИГУРАЦИЯ =============================
-CSV_PATH = "py_back/rexexp/data/result_itr4.csv"  # Обнови путь
+CSV_PATH = "py_back/rexexp/data/exploded_characteristics.csv"  # Обнови путь
 OUTPUT_DIR = "result"
 MIN_SUPPORT = 8
 TOP_K = 12
@@ -89,6 +90,102 @@ FEATURE_PATTERNS = [
     r'(модель\s*(?:шины)?)[\s:]+([^;\n]{2,50})'
 ]
 
+# ============================= ОПРЕДЕЛЕНИЕ КОДИРОВКИ =============================
+def detect_encoding(file_path):
+    """Определяет кодировку файла"""
+    with open(file_path, 'rb') as f:
+        raw_data = f.read(10000)  # Читаем первые 10KB для определения
+        result = chardet.detect(raw_data)
+        encoding = result.get('encoding', 'utf-8')
+        confidence = result.get('confidence', 0)
+        logger.info(f"Определена кодировка: {encoding} (уверенность: {confidence:.2f})")
+        return encoding
+
+# ============================= ЗАГРУЗКА ДАННЫХ =============================
+def load_and_prepare_data():
+    logger.info("Загрузка CSV...")
+    
+    # Определяем кодировку
+    encoding = detect_encoding(CSV_PATH)
+    
+    try:
+        # Пробуем загрузить с определенной кодировкой
+        df = pd.read_csv(
+            CSV_PATH, 
+            dtype=str, 
+            low_memory=False, 
+            encoding=encoding
+        ).fillna("")
+        logger.info(f"Успешно загружено с кодировкой: {encoding}")
+        
+    except UnicodeDecodeError:
+        logger.warning(f"Ошибка с кодировкой {encoding}, пробуем windows-1251")
+        try:
+            df = pd.read_csv(
+                CSV_PATH, 
+                dtype=str, 
+                low_memory=False, 
+                encoding='windows-1251'
+            ).fillna("")
+            logger.info("Успешно загружено с кодировкой: windows-1251")
+        except UnicodeDecodeError:
+            logger.warning("Ошибка с windows-1251, пробуем latin-1")
+            df = pd.read_csv(
+                CSV_PATH, 
+                dtype=str, 
+                low_memory=False, 
+                encoding='latin-1'
+            ).fillna("")
+            logger.info("Успешно загружено с кодировкой: latin-1")
+    
+    except Exception as e:
+        logger.error(f"Ошибка загрузки CSV: {e}")
+        # Последняя попытка с обработкой ошибок
+        df = pd.read_csv(
+            CSV_PATH, 
+            dtype=str, 
+            low_memory=False, 
+            encoding='utf-8',
+            on_bad_lines='skip',
+            quoting=0
+        ).fillna("")
+        logger.info("Загружено с обработкой ошибок")
+
+    # Проверяем наличие необходимых колонок
+    required_columns = ['id_сте', 'id_категории', 'название_категории']
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    
+    if missing_columns:
+        logger.error(f"Отсутствуют колонки: {missing_columns}")
+        logger.info(f"Доступные колонки: {list(df.columns)}")
+        raise ValueError(f"Отсутствуют необходимые колонки: {missing_columns}")
+
+    # Используем правильные колонки
+    spec_cols = [col for col in df.columns if col.startswith('spec')]
+    logger.info(f"Найдено колонок с характеристиками: {len(spec_cols)}")
+    
+    df = df[['id_сте', 'id_категории', 'название_категории'] + spec_cols].copy()
+    
+    df['id_сте'] = df['id_сте'].astype(str).str.strip()
+    df['id_категории'] = df['id_категории'].astype(str).str.strip()
+    
+    # Объединяем все spec колонки в один текст
+    df['all_specs'] = df[spec_cols].apply(
+        lambda row: ' ; '.join([str(x) for x in row if str(x) not in ['nan', '', 'None']]), 
+        axis=1
+    )
+
+    # Фильтруем пустые характеристики
+    initial_count = len(df)
+    df = df[df['all_specs'].str.len() > 10]
+    filtered_count = len(df)
+    
+    logger.info(f"Загружено строк: {initial_count:,}")
+    logger.info(f"После фильтрации пустых характеристик: {filtered_count:,}")
+    logger.info(f"Уникальных категорий: {df['id_категории'].nunique()}")
+    
+    return df
+
 # ============================= ИЗВЛЕЧЕНИЕ ХАРАКТЕРИСТИК =============================
 def extract_characteristics(text):
     if not text or len(str(text)) < 10:
@@ -151,36 +248,11 @@ def remove_similar_features(features):
         logger.warning(f"Ошибка дедупликации: {e}")
         return features[:TOP_K]
 
-# ============================= ЗАГРУЗКА ДАННЫХ =============================
-def load_and_prepare_data():
-    logger.info("Загрузка CSV...")
-    try:
-        df = pd.read_csv(CSV_PATH, dtype=str, low_memory=False, engine="c").fillna("")
-    except:
-        df = pd.read_csv(CSV_PATH, dtype=str, low_memory=False, engine="python", on_bad_lines="skip").fillna("")
-
-    # Используем правильные колонки
-    df = df[['id_сте', 'id_категории', 'название_категории'] + 
-            [col for col in df.columns if col.startswith('spec')]].copy()
-    
-    df['id_сте'] = df['id_сте'].astype(str).str.strip()
-    
-    # Объединяем все spec колонки в один текст
-    spec_cols = [col for col in df.columns if col.startswith('spec')]
-    df['all_specs'] = df[spec_cols].apply(
-        lambda row: ' ; '.join([str(x) for x in row if str(x) != 'nan' and str(x) != '']), 
-        axis=1
-    )
-
-    logger.info(f"Загружено строк: {len(df):,}")
-    logger.info(f"Уникальных категорий: {df['id_категории'].nunique()}")
-    return df
-
 # ============================= ОБРАБОТКА КАТЕГОРИЙ =============================
 def process_categories(dataframe):
     logger.info("Извлечение характеристик...")
     category_chars = defaultdict(list)
-    category_item_ids = defaultdict(list)  # Новый: собираем id СТЕ
+    category_item_ids = defaultdict(list)
     category_counts = defaultdict(int)
 
     for _, row in tqdm(dataframe.iterrows(), total=len(dataframe)):
@@ -191,7 +263,7 @@ def process_categories(dataframe):
         chars = extract_characteristics(specs_text)
         if chars:
             category_chars[category_id].extend(chars)
-            category_item_ids[category_id].append(item_id)  # Сохраняем id СТЕ
+            category_item_ids[category_id].append(item_id)
             category_counts[category_id] += 1
 
     return category_chars, category_item_ids, category_counts
@@ -221,10 +293,9 @@ def generate_final_ontology(category_chars, category_item_ids, category_counts):
         unique_chars = remove_similar_features(candidates)
         
         if len(unique_chars) >= 4:
-            # Сохраняем метаданные для категории
             category_metadata[category] = {
                 "total_items": category_counts[category],
-                "item_ids": list(set(category_item_ids[category])),  # Уникальные id СТЕ
+                "item_ids": list(set(category_item_ids[category])),
                 "characteristics_count": len(unique_chars)
             }
             
@@ -253,7 +324,6 @@ def save_results(ontology, metadata, rows_processed):
         "categories": {}
     }
 
-    # Структура с характеристиками и метаданными
     for category_id, chars in ontology.items():
         data["categories"][category_id] = {
             "characteristics": chars,
@@ -273,7 +343,7 @@ def save_results(ontology, metadata, rows_processed):
                 "category_id": cat_id,
                 "characteristic": char,
                 "total_items": cat_data["metadata"]["total_items"],
-                "sample_item_ids": ", ".join(cat_data["metadata"]["item_ids"][:5])  # Примеры id
+                "sample_item_ids": ", ".join(cat_data["metadata"]["item_ids"][:5])
             })
 
     pd.DataFrame(csv_data).to_csv(
@@ -281,35 +351,23 @@ def save_results(ontology, metadata, rows_processed):
         index=False, 
         encoding="utf-8"
     )
-    logger.info("CSV для агрегации готов: result/tires_ontology_for_aggregation.csv")
-
-    # Упрощенный CSV для веб-интерфейса
-    simple_csv_data = []
-    for cat_id, cat_data in data["categories"].items():
-        for char in cat_data["characteristics"]:
-            simple_csv_data.append({
-                "category_id": cat_id,
-                "characteristic": char
-            })
-    
-    pd.DataFrame(simple_csv_data).to_csv(
-        Path(OUTPUT_DIR) / "tires_ontology_simple.csv",
-        index=False,
-        encoding="utf-8"
-    )
-    logger.info("Упрощенный CSV готов: result/tires_ontology_simple.csv")
+    logger.info("CSV для агрегации готов")
 
 # ============================= MAIN =============================
 def main():
-    data = load_and_prepare_data()
-    chars, item_ids, counts = process_categories(data)
-    ontology, metadata = generate_final_ontology(chars, item_ids, counts)
-    save_results(ontology, metadata, len(data))
-    
-    # Статистика
-    total_items_covered = sum([meta["total_items"] for meta in metadata.values()])
-    logger.info(f"Обработано товаров: {total_items_covered:,}")
-    logger.info("Финал! Готово для интеграции в систему агрегации СТЕ!")
+    try:
+        data = load_and_prepare_data()
+        chars, item_ids, counts = process_categories(data)
+        ontology, metadata = generate_final_ontology(chars, item_ids, counts)
+        save_results(ontology, metadata, len(data))
+        
+        total_items_covered = sum([meta["total_items"] for meta in metadata.values()])
+        logger.info(f"Обработано товаров: {total_items_covered:,}")
+        logger.info("Финал! Готово для интеграции в систему агрегации СТЕ!")
+        
+    except Exception as e:
+        logger.error(f"Критическая ошибка: {e}")
+        raise
 
 if __name__ == "__main__":
     main()
