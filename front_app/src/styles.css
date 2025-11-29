@@ -453,8 +453,11 @@ body {
 }
 
 .card-header-row--bottom {
-  margin-top: 8px;
-  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap; /* ВАЖНО: разрешаем перенос внутри строки */
 }
 
 .card-title-block {
@@ -489,8 +492,8 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
-
 .rating-label {
   font-size: 12px;
   color: #4b5563;
@@ -498,7 +501,10 @@ body {
 
 .card-actions {
   display: flex;
+  flex-wrap: wrap; /* кнопки переносятся, а не выезжают */
+  gap: 8px;
   justify-content: flex-end;
+  max-width: 320px; /* чтобы они не распирали панель */
 }
 
 .card-body {
@@ -569,12 +575,28 @@ body {
 
 /* ====== АДАПТИВ ====== */
 
+@media (max-width: 1024px) {
+  .layout {
+    flex-direction: column;
+  }
+
+  .panel-left,
+  .panel-right {
+    width: 100%;
+  }
+
+  .card-actions {
+    justify-content: flex-start;
+  }
+}
+
 @media (max-width: 960px) {
   .layout {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .panel-right {
+    overflow: hidden;
     margin-top: 12px;
   }
 
@@ -611,9 +633,11 @@ body {
 
 .card-new-items-info {
   font-size: 12px;
-  color: #b45309;
-  margin-right: 8px;
-  white-space: nowrap;
+  color: #1f2933;
+  background: #fff7e6;
+  border-radius: 6px;
+  padding: 4px 8px;
+  max-width: 100%;
 }
 
 /* Редактируемые поля в карточке категории */
@@ -636,4 +660,12 @@ body {
   line-height: 1.4;
   resize: vertical;
   min-height: 80px;
+}
+
+.card-title-text {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 4px;
+  word-break: break-word;   /* переносим длинные названия */
 }

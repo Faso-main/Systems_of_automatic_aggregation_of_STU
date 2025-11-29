@@ -500,7 +500,6 @@ function CategoryCard({ category, onRegenerate, onRatingChange, onUpdateCategory
     newItemsCount,
   } = category;
 
-  const [nameDraft, setNameDraft] = useState(name || "");
   const [descriptionDraft, setDescriptionDraft] = useState(description || "");
   const [saving, setSaving] = useState(false);
 
@@ -508,14 +507,12 @@ function CategoryCard({ category, onRegenerate, onRatingChange, onUpdateCategory
 
   // когда выбираем другую категорию — сбрасываем драфты
   useEffect(() => {
-    setNameDraft(name || "");
     setDescriptionDraft(description || "");
     setSaving(false);
-  }, [id, name, description]);
+  }, [id, description]);
 
   const handleSave = async () => {
     const updates = {
-      name: nameDraft.trim() || name,
       description: descriptionDraft.trim(),
     };
 
@@ -532,13 +529,11 @@ function CategoryCard({ category, onRegenerate, onRatingChange, onUpdateCategory
       <div className="card-header">
         <div className="card-header-row">
           <div className="card-title-block">
-            <label className="card-field-label">Название категории</label>
-            <input
-              className="input card-title-input"
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
-            />
-            <div className="card-id">ID категории: {id}</div>
+          <label className="card-field-label">Название категории</label>
+          <div className="card-title-text">
+            {name}
+          </div>
+          <div className="card-id">ID категории: {id}</div>
           </div>
           <div className="card-meta">
             <div className="card-date">
