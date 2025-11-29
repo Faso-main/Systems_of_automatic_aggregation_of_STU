@@ -2,7 +2,7 @@
 import React, { useMemo, useState, useEffect } from "react";
 import "./styles.css";
 
-const API_BASE = "http://localhost:5000";
+const API_BASE = 'https://faso312.ru';
 
 const formatDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString("ru-RU") : "—";
