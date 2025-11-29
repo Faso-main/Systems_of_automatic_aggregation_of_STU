@@ -3,7 +3,7 @@ import React, { useMemo, useState, useEffect } from "react";
 import "./styles.css";
 
 const API_BASE = "https://faso312.ru";
-const PAGE_SIZE = 15; // 15 строк на странице
+const PAGE_SIZE = 15;
 
 const formatDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString("ru-RU") : "—";
@@ -20,7 +20,7 @@ function App() {
 
   const [search, setSearch] = useState("");
   const [filterId, setFilterId] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all"); // all | pending | approved | rejected
+  const [filterStatus, setFilterStatus] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -28,9 +28,11 @@ function App() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // состояние модалки: { id, name, productIds, products, loading, error }
   const [productsModal, setProductsModal] = useState(null);
 
-  // ====== Загрузка категорий с бэка ======
+  // ====== Загрузка категорий ======
   useEffect(() => {
     async function loadCategories() {
       try {
@@ -57,7 +59,6 @@ function App() {
     loadCategories();
   }, []);
 
-  // сброс страницы при изменении фильтров
   useEffect(() => {
     setCurrentPage(1);
   }, [search, filterId, filterStatus, dateFrom, dateTo, categories]);
@@ -67,7 +68,7 @@ function App() {
     [categories, selectedCategoryId]
   );
 
-  // Фильтрация по всей БД (по всему массиву categories)
+  // Фильтрация
   const filteredCategories = useMemo(
     () =>
       categories.filter((cat) => {
@@ -105,7 +106,6 @@ function App() {
     [categories, search, filterId, filterStatus, dateFrom, dateTo]
   );
 
-  // Пагинация
   const totalPages = useMemo(
     () =>
       filteredCategories.length > 0
@@ -135,7 +135,6 @@ function App() {
   };
 
   const handleRatingChange = async (id, rating) => {
-    // оптимистично обновляем на фронте
     setCategories((prev) =>
       prev.map((c) => (c.id === id ? { ...c, rating } : c))
     );
@@ -152,9 +151,7 @@ function App() {
     }
   };
 
-  // обновление имени / описания категории
   const handleCategoryUpdate = async (id, updates) => {
-    // оптимистичное обновление
     setCategories((prev) =>
       prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
     );
@@ -171,7 +168,6 @@ function App() {
     }
   };
 
-  // клик по стрелочке в колонке «Статус» — быстрый цикл фильтра
   const cycleStatusFilter = () => {
     setFilterStatus((prev) => {
       if (prev === "all") return "pending";
@@ -182,13 +178,66 @@ function App() {
     setCurrentPage(1);
   };
 
+  // загрузка товаров для модалки
+  const fetchProductsForModal = async (categoryId, productIds) => {
+    if (!productIds || productIds.length === 0) {
+      setProductsModal((prev) =>
+        prev && prev.id === categoryId
+          ? { ...prev, loading: false, products: [] }
+          : prev
+      );
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/products/by-ids`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: productIds }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      const products = data.products || [];
+
+      setProductsModal((prev) =>
+        prev && prev.id === categoryId
+          ? { ...prev, loading: false, products, error: "" }
+          : prev
+      );
+    } catch (e) {
+      console.error("Ошибка загрузки товаров", e);
+      setProductsModal((prev) =>
+        prev && prev.id === categoryId
+          ? {
+              ...prev,
+              loading: false,
+              error: "Не удалось загрузить товары категории",
+            }
+          : prev
+      );
+    }
+  };
+
   const handleShowProductsModal = (category) => {
     if (!category) return;
+    const ids = category.productIds || [];
+
+    // сначала ставим состояние "открыто, но грузим"
     setProductsModal({
       id: category.id,
       name: category.name,
-      productIds: category.productIds || [],
+      productIds: ids,
+      products: [],
+      loading: true,
+      error: "",
     });
+
+    // и отдельно асинхронно дёргаем бэк
+    fetchProductsForModal(category.id, ids);
   };
 
   const handleCloseProductsModal = () => {
@@ -223,7 +272,7 @@ function App() {
       </div>
 
       <main className="layout">
-        {/* ЛЕВАЯ ПАНЕЛЬ: таблица категорий */}
+        {/* ЛЕВАЯ ПАНЕЛЬ */}
         <section className="panel-left">
           <div className="filters-block">
             <div className="filters-header">Фильтры</div>
@@ -301,46 +350,18 @@ function App() {
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>
-                        <div className="column-header">
-                          <span className="column-header-label">
-                            ID категории
-                          </span>
-                        </div>
-                      </th>
-                      <th>
-                        <div className="column-header">
-                          <span className="column-header-label">
-                            Название категории
-                          </span>
-                        </div>
-                      </th>
-                      <th>
-                        <div className="column-header">
-                          <span className="column-header-label">Описание</span>
-                        </div>
-                      </th>
-                      <th>
-                        <div className="column-header">
-                          <span className="column-header-label">
-                            Дата генерации
-                          </span>
-                        </div>
-                      </th>
-                      <th>
-                        <div className="column-header">
-                          <span className="column-header-label">
-                            Новые товары
-                          </span>
-                        </div>
-                      </th>
+                      <th>ID категории</th>
+                      <th>Название категории</th>
+                      <th>Описание</th>
+                      <th>Дата генерации</th>
+                      <th>Новые товары</th>
                       <th>
                         <div className="column-header">
                           <span className="column-header-label">Статус</span>
                           <div className="column-header-controls">
                             <button
                               className="status-filter-btn"
-                              title="Цикл по статусам: все → не обработано → одобрено → не одобрено"
+                              title="Цикл по статусам"
                               onClick={cycleStatusFilter}
                             >
                               ▲▼
@@ -348,11 +369,7 @@ function App() {
                           </div>
                         </div>
                       </th>
-                      <th>
-                        <div className="column-header">
-                          <span className="column-header-label">Оценка</span>
-                        </div>
-                      </th>
+                      <th>Оценка</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -456,7 +473,7 @@ function App() {
           </div>
         </section>
 
-        {/* ПРАВАЯ ПАНЕЛЬ: карточка выбранной категории (редактируемая) */}
+        {/* ПРАВАЯ ПАНЕЛЬ */}
         <section className="panel-right">
           {selectedCategory ? (
             <CategoryCard
@@ -474,18 +491,13 @@ function App() {
         </section>
       </main>
 
-      {/* Модалка со всеми СТЕ категории */}
       {productsModal && (
-        <ProductsModal
-          data={productsModal}
-          onClose={handleCloseProductsModal}
-        />
+        <ProductsModal data={productsModal} onClose={handleCloseProductsModal} />
       )}
     </div>
   );
 }
 
-// ====== КОМПОНЕНТ ОЦЕНКИ ЗВЁЗДАМИ ======
 function StarRating({ value = 0, onChange }) {
   const stars = [1, 2, 3, 4, 5];
   return (
@@ -507,7 +519,6 @@ function StarRating({ value = 0, onChange }) {
   );
 }
 
-// ====== КАРТОЧКА КАТЕГОРИИ (справа) ======
 function CategoryCard({
   category,
   onRegenerate,
@@ -534,16 +545,13 @@ function CategoryCard({
 
   const dateToShow = generatedAt || createdAt;
 
-  // когда выбираем другую категорию — сбрасываем драфты
   useEffect(() => {
     setDescriptionDraft(description || "");
     setSaving(false);
   }, [id, description]);
 
   const handleSave = async () => {
-    const updates = {
-      description: descriptionDraft.trim(),
-    };
+    const updates = { description: descriptionDraft.trim() };
 
     try {
       setSaving(true);
@@ -629,7 +637,6 @@ function CategoryCard({
 
         <div className="card-section">
           <div className="card-section-title">Основные характеристики</div>
-
           {features.length === 0 ? (
             <p className="card-section-empty">
               Для этой категории пока не выделены уникальные характеристики.
@@ -674,7 +681,7 @@ function CategoryCard({
 
 function ProductsModal({ data, onClose }) {
   if (!data) return null;
-  const { name, productIds = [] } = data;
+  const { name, productIds = [], products = [], loading, error } = data;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -696,13 +703,45 @@ function ProductsModal({ data, onClose }) {
         </div>
 
         <div className="modal-body">
-          {productIds.length === 0 ? (
+          {loading ? (
+            <p>Загрузка товаров…</p>
+          ) : error ? (
+            <p className="products-error">{error}</p>
+          ) : productIds.length === 0 ? (
             <p>В этой категории пока нет СТЕ.</p>
+          ) : products.length === 0 ? (
+            <p>По указанным ID товаров в БД ничего не найдено.</p>
           ) : (
             <ul className="products-list">
-              {productIds.map((pid) => (
-                <li key={pid} className="products-list-item">
-                  <span className="products-list-id">ID: {pid}</span>
+              {products.map((p) => (
+                <li key={p.id} className="products-list-item">
+                  <div className="products-item-header">
+                    <span className="products-list-id">ID: {p.id}</span>
+                    {p.name && (
+                      <span className="products-list-name"> — {p.name}</span>
+                    )}
+                  </div>
+
+                  <dl className="product-fields">
+                    {Object.entries(p)
+                      .filter(
+                        ([key]) =>
+                          key !== "id" &&
+                          key !== "category_id" &&
+                          key !== "created_at" &&
+                          key !== "updated_at"
+                      )
+                      .map(([key, value]) => (
+                        <div key={key} className="product-field-row">
+                          <dt>{key}</dt>
+                          <dd>
+                            {value === null || value === undefined
+                              ? "—"
+                              : String(value)}
+                          </dd>
+                        </div>
+                      ))}
+                  </dl>
                 </li>
               ))}
             </ul>

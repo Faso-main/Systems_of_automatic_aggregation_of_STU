@@ -30,10 +30,8 @@ const pool = new Pool({
  * Приведение строки из БД к формату, удобному для фронта.
  */
 function mapCategoryRow(row) {
-  // generated_at и created_at приходят как Date в node-pg → JSON сделает ISO-строку
   const createdAt = row.generated_at || row.created_at || null;
 
-  // нормализуем статус и рейтинг
   const status = row.admin_status || 'pending';
   const rating =
     row.admin_rating === null || row.admin_rating === undefined
@@ -51,10 +49,10 @@ function mapCategoryRow(row) {
     name: row.name,
     description: row.short_description || '',
     createdAt,
-    status, // 'pending' | 'approved' | 'rejected'
-    rating, // number
+    status,
+    rating,
     productIds: row.product_ids || [],
-    features: row.category_features || [], // [{ key, values: [...] }, ...]
+    features: row.category_features || [],
     hasNewItems,
     newItemsCount,
   };
@@ -97,7 +95,7 @@ const CATEGORY_SELECT = `
   LEFT JOIN product p ON p.category_id = c.id
 `;
 
-// ====== Роуты ======
+// ====== РОУТЫ ======
 
 // Health-check
 app.get('/api/health', async (req, res) => {
@@ -174,10 +172,8 @@ app.get('/api/categories/:id', async (req, res) => {
 });
 
 // ===============================
-// НОВОЕ: POST /api/categories/:id/rating
-// Сохранение оценки категории (звёздочки)
+// Рейтинг категории
 // ===============================
-// Рейтинг категории админом
 app.post('/api/categories/:id/rating', async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -188,7 +184,6 @@ app.post('/api/categories/:id/rating', async (req, res) => {
     const { rating } = req.body || {};
     const ratingInt = Number(rating);
 
-    // рейтинг 1–5, как договоримся
     if (!Number.isInteger(ratingInt) || ratingInt < 1 || ratingInt > 5) {
       return res
         .status(400)
@@ -216,8 +211,9 @@ app.post('/api/categories/:id/rating', async (req, res) => {
   }
 });
 
-
-
+// ===============================
+// ОБНОВЛЕНИЕ КАТЕГОРИИ
+// ===============================
 app.patch('/api/categories/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -269,7 +265,9 @@ app.patch('/api/categories/:id', async (req, res) => {
   }
 });
 
-// Заглушка "перегенерация"
+// ===============================
+// Перегенерация категории (заглушка)
+// ===============================
 app.post('/api/categories/:id/regenerate', async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -277,8 +275,6 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
       return res.status(400).json({ error: 'Некорректный ID категории' });
     }
 
-    // Считаем, что после регенерации все текущие товары учтены,
-    // поэтому сбрасываем флаг новых и счётчик
     const result = await pool.query(
       `
       UPDATE product_category
@@ -300,6 +296,44 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
   } catch (err) {
     console.error('Ошибка POST /api/categories/:id/regenerate:', err);
     res.status(500).json({ error: 'Не удалось перегенерировать категорию' });
+  }
+});
+
+// ===============================
+// НОВОЕ: получить товары по списку id СТЕ
+// ===============================
+app.post('/api/products/by-ids', async (req, res) => {
+  try {
+    const { ids } = req.body || {};
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Не переданы id товаров' });
+    }
+
+    const cleanIds = [...new Set(
+      ids
+        .map((x) => Number(x))
+        .filter((x) => Number.isInteger(x))
+    )];
+
+    if (cleanIds.length === 0) {
+      return res.status(400).json({ error: 'Некорректные id товаров' });
+    }
+
+    const result = await pool.query(
+      `
+      SELECT *
+      FROM product
+      WHERE id = ANY($1::bigint[])
+      ORDER BY id;
+      `,
+      [cleanIds]
+    );
+
+    res.json({ products: result.rows });
+  } catch (err) {
+    console.error('Ошибка POST /api/products/by-ids:', err);
+    res.status(500).json({ error: 'Не удалось загрузить товары' });
   }
 });
 
