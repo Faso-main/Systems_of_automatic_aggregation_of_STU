@@ -7,7 +7,7 @@ from pathlib import Path
 import json
 from typing import Dict, Any, List
 
-from py_back.rexexp.runtime_llm_itr1 import RuntimeCharacteristicsExtractor
+from py_back.rexexp.runtime_llm_itr2 import RuntimeCharacteristicsExtractor
 
 
 OUTPUT_TESTS_PATH = "runtime_llm_tests.json"
