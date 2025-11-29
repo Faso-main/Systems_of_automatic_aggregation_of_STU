@@ -8,17 +8,14 @@ const PAGE_SIZE = 15; // 15 строк на странице
 const formatDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString("ru-RU") : "—";
 
-// маленький помощник для красивого текста статуса
 const statusLabel = (status) => {
   if (status === "approved") return "Одобрено";
   if (status === "rejected") return "Не одобрено";
-  // всё, что не одобрено/не отклонено — считаем «не обработано»
   return "Не обработано";
 };
 
 function App() {
   const [categories, setCategories] = useState([]);
-
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
 
   const [search, setSearch] = useState("");
@@ -59,7 +56,7 @@ function App() {
     loadCategories();
   }, []);
 
-  // Сброс страницы при изменении фильтров или списка категорий
+  // сброс страницы при изменении фильтров
   useEffect(() => {
     setCurrentPage(1);
   }, [search, filterId, filterStatus, dateFrom, dateTo, categories]);
@@ -69,11 +66,10 @@ function App() {
     [categories, selectedCategoryId]
   );
 
-  // ФИЛЬТРАЦИЯ ПО ВСЕЙ БД (по всему массиву categories)
+  // Фильтрация по всей БД (по всему массиву categories)
   const filteredCategories = useMemo(
     () =>
       categories.filter((cat) => {
-        // поиск по названию / описанию
         if (
           search &&
           !`${cat.name} ${cat.description || ""}`
@@ -83,13 +79,10 @@ function App() {
           return false;
         }
 
-        // фильтр по ID
         if (filterId && !String(cat.id).includes(filterId.trim())) return false;
 
-        // фильтр по статусу
         if (filterStatus !== "all") {
           if (filterStatus === "pending") {
-            // «не обработано» — всё, что НЕ approved и НЕ rejected
             if (cat.status === "approved" || cat.status === "rejected") {
               return false;
             }
@@ -98,7 +91,6 @@ function App() {
           }
         }
 
-        // фильтр по датам (берём createdAt / generatedAt, что есть)
         const dateField = cat.createdAt || cat.generatedAt;
         if (dateFrom && dateField) {
           if (new Date(dateField) < new Date(dateFrom)) return false;
@@ -112,7 +104,7 @@ function App() {
     [categories, search, filterId, filterStatus, dateFrom, dateTo]
   );
 
-  // ПАГИНАЦИЯ ПО РЕЗУЛЬТАТАМ ФИЛЬТРАЦИИ
+  // Пагинация
   const totalPages = useMemo(
     () =>
       filteredCategories.length > 0
@@ -142,7 +134,6 @@ function App() {
   };
 
   const handleRatingChange = async (id, rating) => {
-    // сначала оптимистично обновим фронт
     setCategories((prev) =>
       prev.map((c) => (c.id === id ? { ...c, rating } : c))
     );
@@ -162,7 +153,7 @@ function App() {
   // клик по стрелочке в колонке «Статус» — быстрый цикл фильтра
   const cycleStatusFilter = () => {
     setFilterStatus((prev) => {
-      if (prev === "all") return "pending"; // показать только «не обработано»
+      if (prev === "all") return "pending";
       if (prev === "pending") return "approved";
       if (prev === "approved") return "rejected";
       return "all";
@@ -321,17 +312,12 @@ function App() {
                           <span className="column-header-label">Оценка</span>
                         </div>
                       </th>
-                      <th>
-                        <div className="column-header">
-                          <span className="column-header-label">Действия</span>
-                        </div>
-                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {paginatedCategories.length === 0 && (
                       <tr>
-                        <td className="table-empty" colSpan={7}>
+                        <td className="table-empty" colSpan={6}>
                           Нет категорий, подходящих под фильтр
                         </td>
                       </tr>
@@ -348,7 +334,7 @@ function App() {
                         onClick={() => setSelectedCategoryId(cat.id)}
                       >
                         <td>{cat.id}</td>
-                        <td>{cat.name}</td>
+                        <td className="table-cell-name">{cat.name}</td>
                         <td className="table-cell-description">
                           {cat.description || "—"}
                         </td>
@@ -372,23 +358,11 @@ function App() {
                             onChange={(v) => handleRatingChange(cat.id, v)}
                           />
                         </td>
-                        <td>
-                          <button
-                            className="btn btn-ghost btn-small"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRegenerate(cat.id);
-                            }}
-                          >
-                            Перегенерировать
-                          </button>
-                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
 
-                {/* пагинация */}
                 <div className="pagination">
                   <div className="pagination-info">
                     Страница {currentPage} из {totalPages}

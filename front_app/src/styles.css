@@ -249,6 +249,7 @@ body {
   border-radius: 12px;
   overflow: hidden;
   font-size: 13px;
+  table-layout: fixed; /* чтобы ширина колонок была предсказуемой */
 }
 
 .table thead {
@@ -261,6 +262,9 @@ body {
   border-bottom: 1px solid #e5e7eb;
   text-align: left;
   vertical-align: top;
+  word-break: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .table th {
@@ -285,12 +289,17 @@ body {
   background: #eff6ff;
 }
 
+.table-cell-name {
+  max-width: 200px;
+}
+
 .table-cell-description {
   max-width: 260px;
-  white-space: nowrap;
+  white-space: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
+
+/* ====== ПРИ ПУСТОЙ ТАБЛИЦЕ ====== */
 
 .table-empty {
   text-align: center;
@@ -343,6 +352,10 @@ body {
   border-radius: 999px;
   font-size: 11px;
   font-weight: 500;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .status-badge--approved {
@@ -530,6 +543,7 @@ body {
   background: #f9fafb;
   display: inline-flex;
   gap: 4px;
+  max-width: 100%;
 }
 
 .feature-key {
@@ -562,5 +576,11 @@ body {
 
   .panel-right {
     margin-top: 12px;
+  }
+
+  /* На узких экранах прячем колонку "Описание" */
+  .table th:nth-child(3),
+  .table td:nth-child(3) {
+    display: none;
   }
 }
