@@ -1,17 +1,17 @@
 #!/usr/bin/env python
 import csv
-import json
 from pathlib import Path
 
 import psycopg2
 from psycopg2.extras import execute_batch, Json
 
+# Путь к CSV
 CSV_PATH = Path("py_back/rexexp/data/result_itr4.csv")
 
 DB_CONFIG = {
     "dbname": "th3_db",
     "user": "th3_app",
-    "password": "1234",      # поправь, если у тебя другой пароль
+    "password": "1234",      # поправь, если нужен другой пароль
     "host": "localhost",
     "port": 5432,
 }
@@ -21,9 +21,9 @@ BATCH_SIZE = 1000
 
 def build_raw_specs(row: dict) -> list[dict]:
     """
-    Собираем spec1..spec31 в массив
+    Собираем spec1..specN в массив:
     [
-      {"key": "Ширина профиля", "value": "256 мм"},
+      {"key": "Плотность ткани", "value": "235 гр/м2"},
       ...
     ]
     """
@@ -48,6 +48,8 @@ def build_raw_specs(row: dict) -> list[dict]:
 def main():
     if not CSV_PATH.exists():
         raise SystemExit(f"Файл {CSV_PATH} не найден")
+
+    print(f"Использую CSV: {CSV_PATH.resolve()}")
 
     conn = psycopg2.connect(**DB_CONFIG)
     conn.autocommit = False
@@ -89,6 +91,7 @@ def main():
     """
 
     total = 0
+    skipped_no_name = 0
     batch = []
 
     with CSV_PATH.open("r", encoding="utf-8") as f:
@@ -103,17 +106,25 @@ def main():
             if not product_id:
                 continue
 
-            # id категории (как в CSV)
+            # id категории
             cat_raw = row.get("id_категории")
             try:
-                category_id = int(cat_raw) if cat_raw not in (None, "", "NaN") else None
+                category_id = (
+                    int(cat_raw) if cat_raw not in (None, "", "NaN") else None
+                )
             except ValueError:
                 category_id = None
+
+            # имя товара — ОБЯЗАТЕЛЬНО, иначе пропускаем строку
+            raw_name = (row.get("название_сте") or "").strip()
+            if not raw_name:
+                skipped_no_name += 1
+                continue
 
             product = {
                 "id": product_id,
                 "category_id": category_id,
-                "name": (row.get("название_сте") or "").strip() or None,
+                "name": raw_name,
                 "producer": (row.get("производитель") or "").strip() or None,
                 "country": (row.get("страна_происхождения") or "").strip() or None,
                 "image_url": (row.get("ссылка_на_картинку") or "").strip() or None,
@@ -127,13 +138,13 @@ def main():
             if len(batch) >= BATCH_SIZE:
                 execute_batch(cur, sql, batch, page_size=BATCH_SIZE)
                 conn.commit()
-                print(f"Импортировано {total} строк...")
+                print(f"Импортировано {total} строк (пока), пропущено без name: {skipped_no_name}")
                 batch.clear()
 
     if batch:
         execute_batch(cur, sql, batch, page_size=BATCH_SIZE)
         conn.commit()
-        print(f"Импортировано всего {total} строк.")
+        print(f"Импортировано всего {total} строк, пропущено без name: {skipped_no_name}")
 
     cur.close()
     conn.close()
