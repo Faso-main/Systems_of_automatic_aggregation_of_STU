@@ -143,8 +143,8 @@ body {
 .filters-block {
   border-radius: 12px;
   border: 1px solid #e5e7eb;
-  padding: 12px;
-  margin-bottom: 12px;
+  padding: 4px;
+  margin-bottom: 5px;
 }
 
 .filters-header {
@@ -248,7 +248,7 @@ body {
   border-collapse: collapse;
   border-radius: 12px;
   overflow: hidden;
-  font-size: 13px;
+  font-size: 12px;
   table-layout: fixed; /* чтобы ширина колонок была предсказуемой */
 }
 
