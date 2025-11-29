@@ -156,3 +156,50 @@ SELECT
 FROM product_category c
 LEFT JOIN product p ON p.category_id = c.id
 GROUP BY c.id, c.name, c.short_description, c.generated_at, c.admin_rating, c.admin_status;
+
+
+---
+
+ALTER TABLE product
+    ADD COLUMN IF NOT EXISTS imported_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ADD COLUMN IF NOT EXISTS is_used_for_training BOOLEAN  NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS training_used_at  TIMESTAMPTZ;
+
+
+ALTER TABLE product_category
+    ADD COLUMN IF NOT EXISTS has_new_items     BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS new_items_count   INTEGER NOT NULL DEFAULT 0;
+
+
+SELECT
+    c.id,
+    c.name,
+    c.short_description,
+    c.generated_at,
+    c.admin_rating,
+    c.admin_status,
+    COUNT(p.id)                                    AS total_items,
+    COUNT(p.id) FILTER (
+        WHERE p.imported_at > COALESCE(c.generated_at, c.created_at)
+    )                                              AS new_items_count
+FROM product_category c
+LEFT JOIN product p ON p.category_id = c.id
+GROUP BY c.id, c.name, c.short_description, c.generated_at, c.admin_rating, c.admin_status;
+
+CREATE OR REPLACE FUNCTION trg_product_after_insert()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Обновляем счётчик новых товаров для категории, если товар "новый" относительно генерации
+    UPDATE product_category c
+    SET
+        has_new_items   = TRUE,
+        new_items_count = c.new_items_count + 1
+    WHERE c.id = NEW.category_id
+      AND (
+          c.generated_at IS NULL
+          OR NEW.imported_at > c.generated_at
+      );
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
