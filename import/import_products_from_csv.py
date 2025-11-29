@@ -6,7 +6,7 @@ from pathlib import Path
 import psycopg2
 from psycopg2.extras import execute_batch, Json
 
-CSV_PATH = "py_back/rexexp/data/result_itr4.csv"
+CSV_PATH = Path("py_back/rexexp/data/result_itr4.csv")
 
 DB_CONFIG = {
     "dbname": "th3_db",
