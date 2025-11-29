@@ -15,23 +15,28 @@ app.use(
 
 app.use(express.json({ limit: '10mb' }));
 
-// ====== Подключение к th3_db ======
+// ===========================
+// Настройка подключения к БД
+// ===========================
 const pool = new Pool({
   user: 'th3_app',
   host: 'localhost',
   database: 'th3_db',
-  password: '1234', // подставь реально нужный
+  password: '1234', // поправь на свой если нужно
   port: 5432,
 });
 
-// ====== Вспомогательные функции ======
+// ===========================
+// Вспомогательные функции
+// ===========================
 
 /**
- * Приведение строки из БД к формату, удобному для фронта.
+ * Преобразует строку категории из БД к формату, который удобен фронтенду.
  */
 function mapCategoryRow(row) {
   const createdAt = row.generated_at || row.created_at || null;
 
+  // нормализуем статус и рейтинг
   const status = row.admin_status || 'pending';
   const rating =
     row.admin_rating === null || row.admin_rating === undefined
@@ -49,10 +54,10 @@ function mapCategoryRow(row) {
     name: row.name,
     description: row.short_description || '',
     createdAt,
-    status,
-    rating,
+    status, // 'pending' | 'approved' | 'rejected'
+    rating, // number
     productIds: row.product_ids || [],
-    features: row.category_features || [],
+    features: row.category_features || [], // [{ key, values: [...] }, ...]
     hasNewItems,
     newItemsCount,
   };
@@ -95,7 +100,9 @@ const CATEGORY_SELECT = `
   LEFT JOIN product p ON p.category_id = c.id
 `;
 
-// ====== РОУТЫ ======
+// ===========================
+// РОУТЫ
+// ===========================
 
 // Health-check
 app.get('/api/health', async (req, res) => {
@@ -125,8 +132,10 @@ app.get('/api/categories', async (req, res) => {
         c.new_items_count
       ORDER BY c.id;
     `;
+
     const result = await pool.query(query);
     const categories = result.rows.map(mapCategoryRow);
+
     res.json({ categories });
   } catch (err) {
     console.error('Ошибка /api/categories:', err);
@@ -157,6 +166,7 @@ app.get('/api/categories/:id', async (req, res) => {
         c.new_items_count
       LIMIT 1;
     `;
+
     const result = await pool.query(query, [id]);
 
     if (result.rows.length === 0) {
@@ -171,9 +181,7 @@ app.get('/api/categories/:id', async (req, res) => {
   }
 });
 
-// ===============================
-// Рейтинг категории
-// ===============================
+// Рейтинг категории (1–5)
 app.post('/api/categories/:id/rating', async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -211,9 +219,7 @@ app.post('/api/categories/:id/rating', async (req, res) => {
   }
 });
 
-// ===============================
-// ОБНОВЛЕНИЕ КАТЕГОРИИ
-// ===============================
+// Обновление категории (описание / статус / рейтинг)
 app.patch('/api/categories/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -265,9 +271,7 @@ app.patch('/api/categories/:id', async (req, res) => {
   }
 });
 
-// ===============================
-// Перегенерация категории (заглушка)
-// ===============================
+// Заглушка "перегенерация"
 app.post('/api/categories/:id/regenerate', async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -275,6 +279,8 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
       return res.status(400).json({ error: 'Некорректный ID категории' });
     }
 
+    // Считаем, что после регенерации все текущие товары учтены,
+    // и "новых" больше нет.
     const result = await pool.query(
       `
       UPDATE product_category
@@ -300,7 +306,7 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
 });
 
 // ===============================
-// НОВОЕ: получить товары по списку id СТЕ
+// Получить товары по списку id СТЕ
 // ===============================
 app.post('/api/products/by-ids', async (req, res) => {
   try {
