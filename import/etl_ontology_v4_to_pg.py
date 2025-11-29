@@ -2,13 +2,14 @@ import json
 import psycopg2
 from psycopg2.extras import execute_values
 from datetime import datetime
+import os
 
 # --------------------------
 #  ПУТИ К ФАЙЛАМ
 # --------------------------
-RUNTIME_PATH = "PROD_runtime_V2_READY.json"
-ITEMS_ITR3_PATH = "runtime_llm_items_itr3.json"
-ONTOLOGY_PATH = "UCOV4.json.json"
+RUNTIME_PATH = os.path.join("result","PROD_runtime_V2_READY.json")
+ITEMS_ITR3_PATH = os.path.join("result","runtime_llm_items_itr3.json")
+ONTOLOGY_PATH = os.path.join("result","UCOV4.json.json")
 
 # --------------------------
 #  ПОДКЛЮЧЕНИЕ К БД
