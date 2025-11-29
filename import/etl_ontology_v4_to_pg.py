@@ -9,7 +9,7 @@ import os
 # --------------------------
 RUNTIME_PATH = os.path.join("result","PROD_runtime_V2_READY.json")
 ITEMS_ITR3_PATH = os.path.join("result","runtime_llm_items_itr3.json")
-ONTOLOGY_PATH = os.path.join("result","UCOV4.json.json")
+ONTOLOGY_PATH = os.path.join("result","UCOV4.json")
 
 # --------------------------
 #  ПОДКЛЮЧЕНИЕ К БД
