@@ -181,61 +181,41 @@ app.post('/api/categories/:id/rating', async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (Number.isNaN(id)) {
-      return res.status(400).json({ error: 'Некорректный ID категории' });
+      return res.status(400).json({ error: 'Некорректный id категории' });
     }
 
     const { rating } = req.body || {};
-    const ratingInt = parseInt(rating, 10);
 
-    if (!Number.isFinite(ratingInt) || ratingInt < 1 || ratingInt > 5) {
-      return res.status(400).json({ error: 'Некорректная оценка (1..5)' });
+    const ratingInt = Number(rating);
+    if (!Number.isInteger(ratingInt) || ratingInt < 1 || ratingInt > 5) {
+      return res
+        .status(400)
+        .json({ error: 'rating должен быть целым числом от 1 до 5' });
     }
 
-    // Обновляем рейтинг
     const upd = await pool.query(
       `
       UPDATE product_category
       SET admin_rating = $1
       WHERE id = $2
-      RETURNING id;
+      RETURNING id, name, admin_rating;
       `,
       [ratingInt, id]
     );
 
     if (upd.rowCount === 0) {
+      // вот этот 404 мы и видим, если в текущей БД нет такой строки
       return res.status(404).json({ error: 'Категория не найдена' });
     }
 
-    // Подтянем обновлённую категорию тем же SELECT'ом
-    const query = `
-      ${CATEGORY_SELECT}
-      WHERE c.id = $1
-      GROUP BY
-        c.id,
-        c.name,
-        c.short_description,
-        c.generated_at,
-        c.created_at,
-        c.admin_rating,
-        c.admin_status,
-        c.has_new_items,
-        c.new_items_count
-      LIMIT 1;
-    `;
-    const result = await pool.query(query, [id]);
-    const category = mapCategoryRow(result.rows[0]);
-
-    res.json({ ok: true, category });
+    return res.json({ category: upd.rows[0] });
   } catch (err) {
     console.error('Ошибка POST /api/categories/:id/rating:', err);
-    res.status(500).json({ error: 'Не удалось обновить рейтинг' });
+    return res.status(500).json({ error: 'Не удалось обновить рейтинг' });
   }
 });
 
-// ===============================
-// Обновление категории (описание / статус / рейтинг)
-// PATCH /api/categories/:id
-// ===============================
+
 app.patch('/api/categories/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
