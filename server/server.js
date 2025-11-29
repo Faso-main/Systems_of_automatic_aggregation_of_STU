@@ -1,250 +1,204 @@
+// server.js
 import express from 'express';
 import cors from 'cors';
-import bcrypt from 'bcryptjs';
 import { Pool } from 'pg';
 
 const app = express();
 const PORT = 5000;
 
-// Настройки CORS (для React на localhost:3000)
-app.use(cors({
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
-  credentials: true,
-}));
+// CORS: Vite обычно на 5173, но добавим и 3000 на всякий
+app.use(
+  cors({
+    origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000'],
+    credentials: false,
+  })
+);
+
 app.use(express.json({ limit: '10mb' }));
 
-// === ПОДКЛЮЧЕНИЕ К ПОЛНОСТЬЮ ПУСТОЙ БАЗЕ ===
+// ====== Подключение к th3_db ======
 const pool = new Pool({
-  user: 'postgres',           // или store_app1 — как у тебя есть доступ
+  user: 'th3_app',
   host: 'localhost',
-  database: 'pc_db',          // любая существующая база (можно online_store1)
-  password: '1234',           // твой реальный пароль!
+  database: 'th3_db',
+  password: '1234',      // подставь реально нужный
   port: 5432,
 });
 
-// Простое in-memory хранилище сессий
-const sessions = new Map();
-const generateSessionId = () => Math.random().toString(36).substring(2) + Date.now();
+// ====== Вспомогательные функции ======
 
-// === АВТОМАТИЧЕСКОЕ СОЗДАНИЕ ВСЕХ ТАБЛИЦ ПРИ ЗАПУСКЕ ===
-async function initDatabase() {
-  const client = await pool.connect();
-  try {
-    console.log('Создаём схему и таблицы...');
+/**
+ * Приведение строки из БД к формату, удобному для фронта.
+ */
+function mapCategoryRow(row) {
+  // generated_at и created_at приходят как Date в node-pg → JSON сделает ISO-строку
+  const createdAt = row.generated_at || row.created_at || null;
 
-    await client.query(`CREATE SCHEMA IF NOT EXISTS store AUTHORIZATION postgres`);
+  // нормализуем статус и рейтинг
+  const status = row.admin_status || 'pending';
+  const rating =
+    row.admin_rating === null || row.admin_rating === undefined
+      ? 0
+      : Number(row.admin_rating);
 
-    // 1. Пользователи
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS store.users (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        email VARCHAR(255) UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        INN VARCHAR(20),
-        company_name VARCHAR(255),
-        phone_number VARCHAR(50),
-        location TEXT,
-        role VARCHAR(50) DEFAULT 'user',
-        is_active BOOLEAN DEFAULT true,
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW()
-      );
-    `);
-
-    // 2. Категории (деревовидные)
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS store.categories (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        parent_id INTEGER REFERENCES store.categories(id),
-        level INTEGER DEFAULT 1,
-        description TEXT,
-        is_active BOOLEAN DEFAULT true,
-        sort_order INTEGER DEFAULT 0
-      );
-    `);
-
-    // 3. Товары
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS store.products (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        description TEXT,
-        price_per_item DECIMAL(12,2) NOT NULL,
-        company VARCHAR(255),
-        category_id INTEGER REFERENCES store.categories(id),
-        is_active BOOLEAN DEFAULT true,
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      );
-    `);
-
-    // 4. Закупки
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS store.procurements (
-        id SERIAL PRIMARY KEY,
-        title VARCHAR(500) NOT NULL,
-        description TEXT,
-        session_number VARCHAR(100) UNIQUE NOT NULL,
-        customer_name VARCHAR(255),
-        customer_inn VARCHAR(20),
-        current_price DECIMAL(14,2) NOT NULL,
-        start_date TIMESTAMPTZ NOT NULL,
-        end_date TIMESTAMPTZ NOT NULL,
-        law_type VARCHAR(50) DEFAULT '44-ФЗ',
-        contract_terms TEXT,
-        contract_security TEXT,
-        status VARCHAR(50) DEFAULT 'active',
-        created_by INTEGER REFERENCES store.users(id),
-        is_active BOOLEAN DEFAULT true,
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW()
-      );
-    `);
-
-    // 5. Товары в закупке
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS store.procurement_products (
-        id SERIAL PRIMARY KEY,
-        procurement_id INTEGER REFERENCES store.procurements(id) ON DELETE CASCADE,
-        product_id INTEGER REFERENCES store.products(id),
-        required_quantity INTEGER NOT NULL,
-        max_price DECIMAL(14,2),
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      );
-    `);
-
-    // 6. Участие в закупках
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS store.procurement_participants (
-        id SERIAL PRIMARY KEY,
-        procurement_id INTEGER REFERENCES store.procurements(id) ON DELETE CASCADE,
-        user_id INTEGER REFERENCES store.users(id),
-        proposed_price DECIMAL(14,2),
-        proposal_text TEXT,
-        status VARCHAR(50) DEFAULT 'pending',
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        UNIQUE(procurement_id, user_id)
-      );
-    `);
-
-    console.log('Все таблицы успешно созданы в схеме "store"');
-  } catch (err) {
-    console.error('Ошибка при создании таблиц:', err.message);
-  } finally {
-    client.release();
-  }
+  return {
+    id: Number(row.id),
+    name: row.name,
+    description: row.short_description || '',
+    createdAt,
+    status, // 'pending' | 'approved' | 'rejected'
+    rating, // number
+    productIds: row.product_ids || [],
+    features: row.category_features || [], // [{ key, values: [...] }, ...]
+  };
 }
 
-// === ЗАПУСК СЕРВЕРА ===
-app.listen(PORT, async () => {
-  console.log(`Сервер запущен: http://localhost:${PORT}`);
-  await initDatabase(); // ← создаём всё автоматически
-});
+// Базовый SELECT для категорий
+const CATEGORY_SELECT = `
+  SELECT
+      c.id                                      AS id,
+      c.name                                    AS name,
+      c.short_description                       AS short_description,
+      c.generated_at                            AS generated_at,
+      c.created_at                              AS created_at,
+      c.admin_rating                            AS admin_rating,
+      c.admin_status                            AS admin_status,
 
-// === МИДЛВАРЫ ===
-const checkSession = (req, res, next) => {
-  const sessionId = req.headers['session-id'];
-  if (!sessionId || !sessions.has(sessionId)) {
-    return res.status(401).json({ error: 'Неавторизован' });
-  }
-  req.user = sessions.get(sessionId); // теперь точно есть .id
-  next();
-};
+      ARRAY_AGG(DISTINCT p.id ORDER BY p.id)    AS product_ids,
 
-// Логирование (по желанию)
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-  next();
-});
+      (
+          SELECT JSON_AGG(
+                     JSONB_BUILD_OBJECT(
+                         'key', key,
+                         'values', values
+                     )
+                     ORDER BY key
+                 )
+          FROM (
+              SELECT
+                  cf.key,
+                  ARRAY_AGG(DISTINCT cf.value ORDER BY cf.value) AS values
+              FROM category_feature cf
+              WHERE cf.category_id = c.id
+              GROUP BY cf.key
+          ) t
+      ) AS category_features
 
-// === МАРШРУТЫ ===
+  FROM product_category c
+  LEFT JOIN product p ON p.category_id = c.id
+`;
 
-// Health check
+// ====== Роуты ======
+
+// Health-check
 app.get('/api/health', async (req, res) => {
   try {
     const result = await pool.query('SELECT NOW()');
-    res.json({ status: 'OK', db_time: result.rows[0].now, sessions: sessions.size });
+    res.json({ status: 'OK', db_time: result.rows[0].now });
   } catch (err) {
-    res.status(500).json({ error: 'Нет подключения к БД' });
+    console.error('Ошибка /api/health:', err);
+    res.status(500).json({ status: 'ERROR', error: 'DB not available' });
   }
 });
 
-// Регистрация
-app.post('/api/auth/register', async (req, res) => {
+// Все категории
+app.get('/api/categories', async (req, res) => {
   try {
-    const { name, email, password, INN, company_name, phone_number, location } = req.body;
+    const query = `
+      ${CATEGORY_SELECT}
+      GROUP BY c.id, c.name, c.short_description, c.generated_at, c.created_at, c.admin_rating, c.admin_status
+      ORDER BY c.id;
+    `;
+    const result = await pool.query(query);
+    const categories = result.rows.map(mapCategoryRow);
+    res.json({ categories });
+  } catch (err) {
+    console.error('Ошибка /api/categories:', err);
+    res.status(500).json({ error: 'Не удалось загрузить категории' });
+  }
+});
 
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: 'Имя, email и пароль обязательны' });
+// Одна категория по id
+app.get('/api/categories/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ error: 'Некорректный ID категории' });
     }
 
-    const exists = await pool.query('SELECT id FROM store.users WHERE email = $1', [email]);
-    if (exists.rows.length > 0) {
-      return res.status(400).json({ error: 'Email уже занят' });
+    const query = `
+      ${CATEGORY_SELECT}
+      WHERE c.id = $1
+      GROUP BY c.id, c.name, c.short_description, c.generated_at, c.created_at, c.admin_rating, c.admin_status
+      LIMIT 1;
+    `;
+    const result = await pool.query(query, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Категория не найдена' });
     }
 
-    const hash = await bcrypt.hash(password, 10);
-    const result = await pool.query(`
-      INSERT INTO store.users (name, email, password_hash, INN, company_name, phone_number, location)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING id, name, email, INN, company_name, phone_number, location, role
-    `, [name, email, hash, INN, company_name, phone_number, location]);
-
-    const user = result.rows[0];
-    const sessionId = generateSessionId();
-    sessions.set(sessionId, { id: user.id, email: user.email, role: user.role || 'user' });
-
-    res.json({ message: 'Регистрация успешна', user, sessionId });
+    const category = mapCategoryRow(result.rows[0]);
+    res.json({ category });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка регистрации' });
+    console.error('Ошибка /api/categories/:id:', err);
+    res.status(500).json({ error: 'Не удалось загрузить категорию' });
   }
 });
 
-// Логин
-app.post('/api/auth/login', async (req, res) => {
+// Обновление категории (оценка / статус)
+app.patch('/api/categories/:id', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const result = await pool.query('SELECT * FROM store.users WHERE email = $1', [email]);
-    if (result.rows.length === 0) return res.status(400).json({ error: 'Пользователь не найден' });
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ error: 'Некорректный ID категории' });
+    }
 
-    const user = result.rows[0];
-    const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) return res.status(400).json({ error: 'Неверный пароль' });
+    const { rating, status } = req.body;
 
-    const sessionId = generateSessionId();
-    sessions.set(sessionId, { id: user.id, email: user.email, role: user.role });
+    const fields = [];
+    const values = [];
+    let idx = 1;
 
-    res.json({
-      message: 'Вход успешен',
-      user: { id: user.id, name: user.name, email: user.email, role: user.role },
-      sessionId
-    });
+    if (rating !== undefined) {
+      fields.push(`admin_rating = $${idx++}`);
+      values.push(Number(rating));
+    }
+    if (status !== undefined) {
+      fields.push(`admin_status = $${idx++}`);
+      values.push(status);
+    }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ error: 'Нечего обновлять' });
+    }
+
+    values.push(id);
+
+    const updateQuery = `
+      UPDATE product_category
+      SET ${fields.join(', ')}
+      WHERE id = $${idx}
+      RETURNING id;
+    `;
+    await pool.query(updateQuery, values);
+
+    // Можно вернуть обновлённую категорию, но для простоты вернём ok
+    res.json({ ok: true });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка входа' });
+    console.error('Ошибка PATCH /api/categories/:id:', err);
+    res.status(500).json({ error: 'Не удалось обновить категорию' });
   }
 });
 
-// Выход
-app.post('/api/auth/logout', checkSession, (req, res) => {
-  sessions.delete(req.headers['session-id']);
-  res.json({ message: 'Выход выполнен' });
+// Заглушка "перегенерация"
+app.post('/api/categories/:id/regenerate', async (req, res) => {
+  const id = req.params.id;
+  console.log(`Запрос на перегенерацию категории ${id}`);
+  // Тут потом можно подвесить вызов пайплайна / LLM
+  res.json({ ok: true, message: `Перегенерация категории ${id} ещё не реализована` });
 });
 
-// Профиль
-app.get('/api/user/profile', checkSession, async (req, res) => {
-  try {
-    const result = await pool.query('SELECT id, name, email, INN, company_name, phone_number, location, role FROM store.users WHERE id = $1', [req.user.id]);
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Пользователь не найден' });
-    res.json({ user: result.rows[0] });
-  } catch (err) {
-    res.status(500).json({ error: 'Ошибка профиля' });
-  }
+app.listen(PORT, () => {
+  console.log(`API сервер запущен на http://localhost:${PORT}`);
 });
-
-// Всё остальное (закупки, товары и т.д.) можешь постепенно добавлять из старого кода
-// Главное — теперь база создаётся сама и сессии работают правильно!
-
-console.log('Готов к запуску. Просто выполни: node server.js');

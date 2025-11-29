@@ -1,53 +1,51 @@
-import React, { useMemo, useState } from "react";
+// src/App.jsx
+import React, { useMemo, useState, useEffect } from "react";
+import "./styles.css";
 
-const initialCategories = [
-  {
-    id: 101,
-    name: "Валенки классические",
-    description:
-      "Тёплые валенки для зимы. Натуральная шерсть, высота до середины голени.",
-    createdAt: "2025-11-24",
-    status: "approved",
-    rating: 4,
-    colors: ["серый", "чёрный", "бежевый"],
-    sizes: ["35", "36", "37", "38", "39", "40", "41"]
-  },
-  {
-    id: 102,
-    name: "Галоши утеплённые",
-    description: "Утеплённые галоши для города и дачи. Влагоустойчивая подошва.",
-    createdAt: "2025-11-28",
-    status: "approved",
-    rating: 5,
-    colors: ["чёрный", "хаки"],
-    sizes: ["36", "37", "38", "39", "40", "41", "42"]
-  },
-  {
-    id: 103,
-    name: "Домашние тапочки",
-    description:
-      "Лёгкие тапочки для дома, мягкая подошва, нескользящее основание.",
-    createdAt: "2025-11-15",
-    status: "rejected",
-    rating: 3,
-    colors: ["синий", "бордовый"],
-    sizes: ["36", "37", "38", "39", "40"]
-  }
-];
+const API_BASE = "http://localhost:5000";
 
-const formatDate = (iso) => new Date(iso).toLocaleDateString("ru-RU");
+const formatDate = (iso) =>
+  iso ? new Date(iso).toLocaleDateString("ru-RU") : "—";
 
 function App() {
-  const [categories, setCategories] = useState(initialCategories);
-  const [selectedCategoryId, setSelectedCategoryId] = useState(
-    initialCategories[0]?.id ?? null
-  );
+  const [categories, setCategories] = useState([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState(null);
 
   const [search, setSearch] = useState("");
   const [filterId, setFilterId] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  // ====== Загрузка категорий с бэка ======
+  useEffect(() => {
+    async function loadCategories() {
+      try {
+        setLoading(true);
+        setError("");
+        const res = await fetch(`${API_BASE}/api/categories`);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        const cats = data.categories || [];
+        setCategories(cats);
+        if (cats.length > 0) {
+          setSelectedCategoryId(cats[0].id);
+        }
+      } catch (e) {
+        console.error("Ошибка загрузки категорий", e);
+        setError("Не удалось загрузить категории");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadCategories();
+  }, []);
 
   const selectedCategory = useMemo(
     () => categories.find((c) => c.id === selectedCategoryId) ?? null,
@@ -59,7 +57,7 @@ function App() {
       categories.filter((cat) => {
         if (
           search &&
-          !`${cat.name} ${cat.description}`
+          !`${cat.name} ${cat.description || ""}`
             .toLowerCase()
             .includes(search.toLowerCase())
         ) {
@@ -67,23 +65,46 @@ function App() {
         }
         if (filterId && !String(cat.id).includes(filterId.trim())) return false;
         if (filterStatus !== "all" && cat.status !== filterStatus) return false;
-        if (dateFrom && new Date(cat.createdAt) < new Date(dateFrom))
-          return false;
-        if (dateTo && new Date(cat.createdAt) > new Date(dateTo)) return false;
+
+        if (dateFrom && cat.createdAt) {
+          if (new Date(cat.createdAt) < new Date(dateFrom)) return false;
+        }
+        if (dateTo && cat.createdAt) {
+          if (new Date(cat.createdAt) > new Date(dateTo)) return false;
+        }
         return true;
       }),
     [categories, search, filterId, filterStatus, dateFrom, dateTo]
   );
 
-  const handleRegenerate = (id) => {
-    console.log("Перегенерировать категорию", id);
-    alert(`Перегенерация категории ID ${id} (заглушка)`);
+  const handleRegenerate = async (id) => {
+    try {
+      await fetch(`${API_BASE}/api/categories/${id}/regenerate`, {
+        method: "POST",
+      });
+      alert(`Перегенерация категории ID ${id} (пока заглушка на бэке)`);
+    } catch (e) {
+      console.error("Ошибка перегенерации", e);
+      alert("Не удалось отправить запрос на перегенерацию");
+    }
   };
 
-  const handleRatingChange = (id, rating) => {
+  const handleRatingChange = async (id, rating) => {
+    // сначала оптимистично обновим фронт
     setCategories((prev) =>
       prev.map((c) => (c.id === id ? { ...c, rating } : c))
     );
+
+    try {
+      await fetch(`${API_BASE}/api/categories/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rating }),
+      });
+    } catch (e) {
+      console.error("Ошибка обновления рейтинга", e);
+      // в проде можно сделать откат или показать тост
+    }
   };
 
   return (
@@ -98,9 +119,9 @@ function App() {
         <div className="header-right">
           <div className="user-info">
             <span className="user-label">Личный кабинет</span>
-            <span className="user-name">IVANOV A.</span>
+            <span className="user-name">Администратор</span>
           </div>
-          <div className="user-avatar">IA</div>
+          <div className="user-avatar">AD</div>
         </div>
       </header>
 
@@ -130,7 +151,7 @@ function App() {
                 <label>ID категории</label>
                 <input
                   className="input"
-                  placeholder="Например, 101"
+                  placeholder="Например, 793286151"
                   value={filterId}
                   onChange={(e) => setFilterId(e.target.value)}
                 />
@@ -169,72 +190,88 @@ function App() {
           </div>
 
           <div className="table-wrapper">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>ID категории</th>
-                  <th>Название категории</th>
-                  <th>Описание</th>
-                  <th>Дата создания</th>
-                  <th>Статус</th>
-                  <th>Оценка</th>
-                  <th>Действия</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredCategories.length === 0 && (
+            {loading ? (
+              <div className="table">
+                <div className="table-empty">Загрузка категорий…</div>
+              </div>
+            ) : error ? (
+              <div className="table">
+                <div className="table-empty">{error}</div>
+              </div>
+            ) : (
+              <table className="table">
+                <thead>
                   <tr>
-                    <td className="table-empty" colSpan={7}>
-                      Нет категорий, подходящих под фильтр
-                    </td>
+                    <th>ID категории</th>
+                    <th>Название категории</th>
+                    <th>Описание</th>
+                    <th>Дата генерации</th>
+                    <th>Статус</th>
+                    <th>Оценка</th>
+                    <th>Действия</th>
                   </tr>
-                )}
-                {filteredCategories.map((cat) => (
-                  <tr
-                    key={cat.id}
-                    className={
-                      cat.id === selectedCategoryId ? "row-selected" : ""
-                    }
-                    onClick={() => setSelectedCategoryId(cat.id)}
-                  >
-                    <td>{cat.id}</td>
-                    <td className="cell-link">{cat.name}</td>
-                    <td className="cell-desc">{cat.description}</td>
-                    <td>{formatDate(cat.createdAt)}</td>
-                    <td>
-                      {cat.status === "approved" ? (
-                        <span className="badge badge-success">Да</span>
-                      ) : (
-                        <span className="badge badge-danger">Нет</span>
-                      )}
-                    </td>
-                    <td>
-                      <StarRating
-                        value={cat.rating}
-                        onChange={(r) => handleRatingChange(cat.id, r)}
-                      />
-                    </td>
-                    <td>
-                      <button
-                        className="btn btn-sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleRegenerate(cat.id);
-                        }}
-                      >
-                        Перегенерировать
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filteredCategories.length === 0 && (
+                    <tr>
+                      <td className="table-empty" colSpan={7}>
+                        Нет категорий, подходящих под фильтр
+                      </td>
+                    </tr>
+                  )}
+                  {filteredCategories.map((cat) => (
+                    <tr
+                      key={cat.id}
+                      className={
+                        cat.id === selectedCategoryId ? "row-selected" : ""
+                      }
+                      onClick={() => setSelectedCategoryId(cat.id)}
+                    >
+                      <td>{cat.id}</td>
+                      <td className="cell-link">{cat.name}</td>
+                      <td className="cell-desc">
+                        {cat.description || "—"}
+                      </td>
+                      <td>{formatDate(cat.createdAt)}</td>
+                      <td>
+                        {cat.status === "approved" ? (
+                          <span className="badge badge-success">Да</span>
+                        ) : (
+                          <span className="badge badge-danger">Нет</span>
+                        )}
+                      </td>
+                      <td>
+                        <StarRating
+                          value={cat.rating || 0}
+                          onChange={(r) => handleRatingChange(cat.id, r)}
+                        />
+                      </td>
+                      <td>
+                        <button
+                          className="btn btn-sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRegenerate(cat.id);
+                          }}
+                        >
+                          Перегенерировать
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </section>
 
         <section className="panel-right">
           {!selectedCategory ? (
-            <div className="empty-card">Выберите категорию в таблице слева</div>
+            <div className="empty-card">
+              {loading
+                ? "Загрузка…"
+                : "Выберите категорию в таблице слева"}
+            </div>
           ) : (
             <CategoryCard
               category={selectedCategory}
@@ -251,6 +288,8 @@ function App() {
 }
 
 function StarRating({ value, onChange }) {
+  const rating = typeof value === "number" ? value : 0;
+
   const handleClick = (v) => {
     if (onChange) onChange(v);
   };
@@ -262,7 +301,7 @@ function StarRating({ value, onChange }) {
           key={v}
           className={
             "star " +
-            (v <= value ? "star-filled " : "") +
+            (v <= rating ? "star-filled " : "") +
             (onChange ? "star-clickable" : "")
           }
           onClick={() => handleClick(v)}
@@ -270,14 +309,32 @@ function StarRating({ value, onChange }) {
           ★
         </span>
       ))}
-      <span className="stars-value">{value.toFixed(1)}</span>
+      <span className="stars-value">{rating.toFixed(1)}</span>
     </div>
   );
 }
 
 function CategoryCard({ category, onRegenerate, onRatingChange }) {
-  const [selectedColor, setSelectedColor] = useState(category.colors[0]);
-  const [selectedSize, setSelectedSize] = useState(category.sizes[0]);
+  const features = category.features || [];
+
+  // Вытаскиваем цвета и размеры из признаков
+  const colorsFeature = features.find((f) => f.key === "Цвет");
+  const sizesFeature =
+    features.find((f) => f.key === "Размер") ||
+    features.find((f) => f.key === "Размер (RU)");
+
+  const colors = colorsFeature?.values || [];
+  const sizes = sizesFeature?.values || [];
+
+  const [selectedColor, setSelectedColor] = useState(
+    colors[0] || "—"
+  );
+  const [selectedSize, setSelectedSize] = useState(
+    sizes[0] || "—"
+  );
+
+  // если категория поменялась — можно было бы сбросить стейт,
+  // но компонент размонтируется и смонтируется заново, так что ок
 
   return (
     <div className="card">
@@ -285,13 +342,16 @@ function CategoryCard({ category, onRegenerate, onRatingChange }) {
         <div>
           <h2>{category.name}</h2>
           <div className="card-subtitle">
-            ID категории: {category.id} · Создано: {formatDate(category.createdAt)}
+            ID категории: {category.id} · Сгенерировано:{" "}
+            {formatDate(category.createdAt)}
           </div>
         </div>
         <div className="card-status-group">
           <span className="card-status-label">Статус:</span>
           {category.status === "approved" ? (
-            <span className="badge badge-success">Одобрено администратором</span>
+            <span className="badge badge-success">
+              Одобрено администратором
+            </span>
           ) : (
             <span className="badge badge-danger">
               Не одобрено администратором
@@ -310,60 +370,91 @@ function CategoryCard({ category, onRegenerate, onRatingChange }) {
         <div className="card-info">
           <div className="card-rating-row">
             <span>Оценка агрегации:</span>
-            <StarRating value={category.rating} onChange={onRatingChange} />
+            <StarRating value={category.rating || 0} onChange={onRatingChange} />
           </div>
 
           <div className="card-section">
             <h3>Описание</h3>
-            <p>{category.description}</p>
+            <p>{category.description || "Описание не задано"}</p>
           </div>
 
           <div className="card-section">
-            <h3>Вариации товара</h3>
+            <h3>Характеристики категории</h3>
+            {features.length === 0 ? (
+              <p>Нет выделенных характеристик для этой категории.</p>
+            ) : (
+              <ul style={{ margin: 0, paddingLeft: 16, fontSize: 13 }}>
+                {features.map((f) => (
+                  <li key={f.key}>
+                    <b>{f.key}:</b>{" "}
+                    {(f.values || []).join(", ")}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
 
-            <div className="card-variants">
-              <div className="variant-block">
-                <div className="variant-label">Цвет</div>
-                <div className="variant-options">
-                  {category.colors.map((color) => (
-                    <button
-                      key={color}
-                      className={
-                        "chip " +
-                        (color === selectedColor ? "chip-selected" : "")
-                      }
-                      onClick={() => setSelectedColor(color)}
-                    >
-                      {color}
-                    </button>
-                  ))}
+          {(colors.length > 0 || sizes.length > 0) && (
+            <div className="card-section">
+              <h3>Примеры вариаций товаров</h3>
+
+              <div className="card-variants">
+                {colors.length > 0 && (
+                  <div className="variant-block">
+                    <div className="variant-label">Цвет</div>
+                    <div className="variant-options">
+                      {colors.map((color) => (
+                        <button
+                          key={color}
+                          className={
+                            "chip " +
+                            (color === selectedColor
+                              ? "chip-selected"
+                              : "")
+                          }
+                          onClick={() => setSelectedColor(color)}
+                        >
+                          {color}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {sizes.length > 0 && (
+                  <div className="variant-block">
+                    <div className="variant-label">Размер</div>
+                    <div className="variant-options">
+                      {sizes.map((size) => (
+                        <button
+                          key={size}
+                          className={
+                            "chip " +
+                            (size === selectedSize
+                              ? "chip-selected"
+                              : "")
+                          }
+                          onClick={() => setSelectedSize(size)}
+                        >
+                          {size}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="variant-summary">
+                  Текущая вариация:{" "}
+                  <b>{selectedColor}</b>
+                  {sizes.length > 0 && (
+                    <>
+                      , размер <b>{selectedSize}</b>
+                    </>
+                  )}
                 </div>
-              </div>
-
-              <div className="variant-block">
-                <div className="variant-label">Размер (RU)</div>
-                <div className="variant-options">
-                  {category.sizes.map((size) => (
-                    <button
-                      key={size}
-                      className={
-                        "chip " +
-                        (size === selectedSize ? "chip-selected" : "")
-                      }
-                      onClick={() => setSelectedSize(size)}
-                    >
-                      {size}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="variant-summary">
-                Текущая вариация: <b>{selectedColor}</b>, размер{" "}
-                <b>{selectedSize}</b>
               </div>
             </div>
-          </div>
+          )}
 
           <div className="card-actions">
             <button className="btn" onClick={onRegenerate}>
