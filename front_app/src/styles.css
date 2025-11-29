@@ -335,10 +335,6 @@ body {
   flex: 1;
 }
 
-.card-image-block {
-  display: flex;
-}
-
 .image-placeholder {
   flex: 1;
   min-height: 220px;

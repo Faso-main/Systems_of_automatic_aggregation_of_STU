@@ -361,11 +361,6 @@ function CategoryCard({ category, onRegenerate, onRatingChange }) {
       </div>
 
       <div className="card-body">
-        <div className="card-image-block">
-          <div className="image-placeholder">
-            <span>Превью категории</span>
-          </div>
-        </div>
 
         <div className="card-info">
           <div className="card-rating-row">
