@@ -1,465 +1,573 @@
-// App.jsx
-import React, { useEffect, useMemo, useState } from "react";
-import "./index.css";
+// src/App.jsx
+import React, { useMemo, useState, useEffect } from "react";
+import "./styles.css";
 
-const PAGE_SIZE = 15;
+const API_BASE = "https://faso312.ru";
+const PAGE_SIZE = 15; // 15 строк на странице
 
-const STATUS_LABELS = {
-  pending: "На проверке",
-  approved: "Одобрена",
-  rejected: "Отклонена",
+const formatDate = (iso) =>
+  iso ? new Date(iso).toLocaleDateString("ru-RU") : "—";
+
+const statusLabel = (status) => {
+  if (status === "approved") return "Одобрено";
+  if (status === "rejected") return "Не одобрено";
+  return "Не обработано";
 };
-
-function formatDate(value) {
-  if (!value) return "-";
-  try {
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return "-";
-    return d.toLocaleString("ru-RU", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return "-";
-  }
-}
 
 function App() {
   const [categories, setCategories] = useState([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [hasNewFilter, setHasNewFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [filterId, setFilterId] = useState("");
+  const [filterStatus, setFilterStatus] = useState("all"); // all | pending | approved | rejected
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   const [currentPage, setCurrentPage] = useState(1);
 
-  const [sortField, setSortField] = useState("id");
-  const [sortDirection, setSortDirection] = useState("asc");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  // ===========================
-  // Загрузка категорий с бэка
-  // ===========================
+  // ====== Загрузка категорий с бэка ======
   useEffect(() => {
-    async function fetchCategories() {
+    async function loadCategories() {
       try {
         setLoading(true);
-        setError(null);
-
-        const res = await fetch("/api/categories");
+        setError("");
+        const res = await fetch(`${API_BASE}/api/categories`);
         if (!res.ok) {
-          throw new Error(`Ошибка загрузки категорий: ${res.status}`);
+          throw new Error(`HTTP ${res.status}`);
         }
         const data = await res.json();
-
-        setCategories(data.categories || []);
-
-        if (!selectedCategoryId && data.categories?.length) {
-          setSelectedCategoryId(data.categories[0].id);
+        const cats = data.categories || [];
+        setCategories(cats);
+        if (cats.length > 0) {
+          setSelectedCategoryId(cats[0].id);
         }
       } catch (e) {
-        console.error(e);
-        setError(e.message);
+        console.error("Ошибка загрузки категорий", e);
+        setError("Не удалось загрузить категории");
       } finally {
         setLoading(false);
       }
     }
 
-    fetchCategories();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    loadCategories();
   }, []);
 
-  // При смене фильтров/поиска сбрасываем страницу
+  // сброс страницы при изменении фильтров
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, statusFilter, hasNewFilter]);
-
-  // ===========================
-  // Фильтрация
-  // ===========================
-
-  const filteredCategories = useMemo(() => {
-    let result = categories;
-
-    // Поиск по id и name
-    const q = searchQuery.trim().toLowerCase();
-    if (q) {
-      result = result.filter((c) => {
-        const idStr = String(c.id || "");
-        const nameStr = (c.name || "").toLowerCase();
-        return idStr.includes(q) || nameStr.includes(q);
-      });
-    }
-
-    // Фильтр по статусу
-    if (statusFilter !== "all") {
-      result = result.filter((c) => (c.status || "pending") === statusFilter);
-    }
-
-    // Фильтр по наличию новых товаров
-    if (hasNewFilter === "yes") {
-      result = result.filter((c) => c.hasNewItems === true);
-    } else if (hasNewFilter === "no") {
-      result = result.filter((c) => !c.hasNewItems);
-    }
-
-    return result;
-  }, [categories, searchQuery, statusFilter, hasNewFilter]);
-
-  // ===========================
-  // Сортировка
-  // ===========================
-
-  const sortedCategories = useMemo(() => {
-    const list = [...filteredCategories];
-
-    list.sort((a, b) => {
-      const dir = sortDirection === "asc" ? 1 : -1;
-
-      switch (sortField) {
-        case "id": {
-          const av = Number(a.id) || 0;
-          const bv = Number(b.id) || 0;
-          return (av - bv) * dir;
-        }
-        case "name": {
-          const av = (a.name || "").toLowerCase();
-          const bv = (b.name || "").toLowerCase();
-          if (av < bv) return -1 * dir;
-          if (av > bv) return 1 * dir;
-          return 0;
-        }
-        case "generatedAt": {
-          const av = a.generatedAt ? new Date(a.generatedAt).getTime() : 0;
-          const bv = b.generatedAt ? new Date(b.generatedAt).getTime() : 0;
-          return (av - bv) * dir;
-        }
-        case "status": {
-          const av = (a.status || "").toLowerCase();
-          const bv = (b.status || "").toLowerCase();
-          if (av < bv) return -1 * dir;
-          if (av > bv) return 1 * dir;
-          return 0;
-        }
-        case "rating": {
-          const av = a.rating ?? -1;
-          const bv = b.rating ?? -1;
-          return (av - bv) * dir;
-        }
-        case "hasNew": {
-          const av = a.hasNewItems ? 1 : 0;
-          const bv = b.hasNewItems ? 1 : 0;
-          if (av === bv) {
-            const ac = a.newItemsCount || 0;
-            const bc = b.newItemsCount || 0;
-            return (ac - bc) * dir;
-          }
-          return (av - bv) * dir;
-        }
-        default:
-          return 0;
-      }
-    });
-
-    return list;
-  }, [filteredCategories, sortField, sortDirection]);
-
-  const totalPages = Math.max(1, Math.ceil(sortedCategories.length / PAGE_SIZE));
-  const page = Math.min(Math.max(1, currentPage), totalPages);
-  const offset = (page - 1) * PAGE_SIZE;
-  const pageCategories = sortedCategories.slice(offset, offset + PAGE_SIZE);
-
-  // ===========================
-  // Детали выбранной категории
-  // ===========================
+  }, [search, filterId, filterStatus, dateFrom, dateTo, categories]);
 
   const selectedCategory = useMemo(
-    () => categories.find((c) => c.id === selectedCategoryId) || null,
+    () => categories.find((c) => c.id === selectedCategoryId) ?? null,
     [categories, selectedCategoryId]
   );
 
-  const handleSort = (field) => {
-    if (sortField === field) {
-      setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortField(field);
-      setSortDirection("asc");
+  // Фильтрация по всей БД (по всему массиву categories)
+  const filteredCategories = useMemo(
+    () =>
+      categories.filter((cat) => {
+        if (
+          search &&
+          !`${cat.name} ${cat.description || ""}`
+            .toLowerCase()
+            .includes(search.toLowerCase())
+        ) {
+          return false;
+        }
+
+        if (filterId && !String(cat.id).includes(filterId.trim())) return false;
+
+        if (filterStatus !== "all") {
+          if (filterStatus === "pending") {
+            if (cat.status === "approved" || cat.status === "rejected") {
+              return false;
+            }
+          } else if (cat.status !== filterStatus) {
+            return false;
+          }
+        }
+
+        const dateField = cat.createdAt || cat.generatedAt;
+        if (dateFrom && dateField) {
+          if (new Date(dateField) < new Date(dateFrom)) return false;
+        }
+        if (dateTo && dateField) {
+          if (new Date(dateField) > new Date(dateTo)) return false;
+        }
+
+        return true;
+      }),
+    [categories, search, filterId, filterStatus, dateFrom, dateTo]
+  );
+
+  // Пагинация
+  const totalPages = useMemo(
+    () =>
+      filteredCategories.length > 0
+        ? Math.ceil(filteredCategories.length / PAGE_SIZE)
+        : 1,
+    [filteredCategories.length]
+  );
+
+  const paginatedCategories = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredCategories.slice(start, start + PAGE_SIZE);
+  }, [filteredCategories, currentPage]);
+
+  const totalCount = categories.length;
+  const filteredCount = filteredCategories.length;
+
+  const handleRegenerate = async (id) => {
+    try {
+      await fetch(`${API_BASE}/api/categories/${id}/regenerate`, {
+        method: "POST",
+      });
+      alert(`Перегенерация категории ID ${id} (пока заглушка на бэке)`);
+    } catch (e) {
+      console.error("Ошибка перегенерации", e);
+      alert("Не удалось отправить запрос на перегенерацию");
     }
   };
 
-  const sortIcon = (field) => {
-    if (sortField !== field) return "⇵";
-    return sortDirection === "asc" ? "↑" : "↓";
+  const handleRatingChange = async (id, rating) => {
+    setCategories((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, rating } : c))
+    );
+
+    try {
+      await fetch(`${API_BASE}/api/categories/${id}/rating`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rating }),
+      });
+    } catch (e) {
+      console.error("Ошибка сохранения рейтинга", e);
+      alert("Не удалось сохранить рейтинг категории");
+    }
   };
 
-  // ===========================
-  // Рендер
-  // ===========================
+  // клик по стрелочке в колонке «Статус» — быстрый цикл фильтра
+  const cycleStatusFilter = () => {
+    setFilterStatus((prev) => {
+      if (prev === "all") return "pending";
+      if (prev === "pending") return "approved";
+      if (prev === "approved") return "rejected";
+      return "all";
+    });
+    setCurrentPage(1);
+  };
 
   return (
     <div className="app-root">
-      <header className="app-header">
-        <h1>Умная агрегация товарных категорий</h1>
-        <p className="app-subtitle">
-          Категории, сгенерированные моделью, и их характеристики
-        </p>
+      <header className="header">
+        <div className="header-left">
+          <div className="logo">
+            <span className="logo-main">Портал поставщиков</span>
+            <span className="logo-sub">Управление категориями товаров</span>
+          </div>
+        </div>
+        <div className="header-right">
+          <div className="user-info">
+            <span className="user-label">Личный кабинет</span>
+            <span className="user-name">Администратор</span>
+          </div>
+          <div className="user-avatar">AD</div>
+        </div>
       </header>
 
-      <main className="app-main">
-        {/* Левая панель: список категорий (2/3 ширины задаётся в CSS) */}
-        <section className="left-panel">
-          <div className="panel-header">
-            <h2>Категории</h2>
+      <div className="toolbar">
+        <div className="toolbar-left">
+          <div className="toolbar-title">Категории товаров</div>
+          <div className="categories-count">
+            Всего: {totalCount} • По фильтру: {filteredCount}
+          </div>
+        </div>
+      </div>
+
+      <main className="layout">
+        {/* ЛЕВАЯ ПАНЕЛЬ: таблица категорий */}
+        <section className="panel-left">
+          <div className="filters-block">
+            <div className="filters-header">Фильтры</div>
+
             <div className="filters-row">
-              <input
-                type="text"
-                className="search-input"
-                placeholder="Поиск по ID или названию…"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
+              <div className="filter-item wide">
+                <label>Поиск по названию или описанию</label>
+                <input
+                  className="input"
+                  placeholder="Введите текст."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+            </div>
 
-              <select
-                className="filter-select"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="all">Все статусы</option>
-                <option value="pending">На проверке</option>
-                <option value="approved">Одобрена</option>
-                <option value="rejected">Отклонена</option>
-              </select>
+            <div className="filters-row">
+              <div className="filter-item">
+                <label>ID категории</label>
+                <input
+                  className="input"
+                  placeholder="Например, 793286151"
+                  value={filterId}
+                  onChange={(e) => setFilterId(e.target.value)}
+                />
+              </div>
 
-              <select
-                className="filter-select"
-                value={hasNewFilter}
-                onChange={(e) => setHasNewFilter(e.target.value)}
-              >
-                <option value="all">Все категории</option>
-                <option value="yes">Есть новые товары</option>
-                <option value="no">Без новых товаров</option>
-              </select>
+              <div className="filter-item">
+                <label>Статус одобрения</label>
+                <select
+                  className="input"
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                >
+                  <option value="all">Все</option>
+                  <option value="pending">Не обработано</option>
+                  <option value="approved">Одобрено</option>
+                  <option value="rejected">Не одобрено</option>
+                </select>
+              </div>
+
+              <div className="filter-item">
+                <label>Дата с</label>
+                <input
+                  type="date"
+                  className="input"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                />
+              </div>
+
+              <div className="filter-item">
+                <label>Дата по</label>
+                <input
+                  type="date"
+                  className="input"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                />
+              </div>
             </div>
           </div>
 
-          {loading && <div className="info-block">Загрузка категорий…</div>}
-          {error && <div className="error-block">Ошибка: {error}</div>}
-
-          {!loading && !error && (
-            <>
-              <div className="table-wrapper">
-                <table className="categories-table">
+          <div className="table-wrapper">
+            {loading ? (
+              <div className="table">
+                <div className="table-empty">Загрузка категорий…</div>
+              </div>
+            ) : error ? (
+              <div className="table">
+                <div className="table-empty table-empty-error">{error}</div>
+              </div>
+            ) : (
+              <>
+                <table className="table">
                   <thead>
                     <tr>
-                      <th onClick={() => handleSort("id")}>
-                        ID категории <span className="sort-icon">{sortIcon("id")}</span>
+                      <th>
+                        <div className="column-header">
+                          <span className="column-header-label">
+                            ID категории
+                          </span>
+                        </div>
                       </th>
-                      <th onClick={() => handleSort("name")}>
-                        Название категории{" "}
-                        <span className="sort-icon">{sortIcon("name")}</span>
+                      <th>
+                        <div className="column-header">
+                          <span className="column-header-label">
+                            Название категории
+                          </span>
+                        </div>
                       </th>
-                      <th>Описание</th>
-                      <th onClick={() => handleSort("generatedAt")}>
-                        Дата генерации{" "}
-                        <span className="sort-icon">
-                          {sortIcon("generatedAt")}
-                        </span>
+                      <th>
+                        <div className="column-header">
+                          <span className="column-header-label">Описание</span>
+                        </div>
                       </th>
-                      <th onClick={() => handleSort("hasNew")}>
-                        Новые товары{" "}
-                        <span className="sort-icon">{sortIcon("hasNew")}</span>
+                      <th>
+                        <div className="column-header">
+                          <span className="column-header-label">
+                            Дата генерации
+                          </span>
+                        </div>
                       </th>
-                      <th onClick={() => handleSort("status")}>
-                        Статус{" "}
-                        <span className="sort-icon">{sortIcon("status")}</span>
+                      <th>
+                        <div className="column-header">
+                          <span className="column-header-label">
+                            Новые товары
+                          </span>
+                        </div>
                       </th>
-                      <th onClick={() => handleSort("rating")}>
-                        Оценка{" "}
-                        <span className="sort-icon">{sortIcon("rating")}</span>
+                      <th>
+                        <div className="column-header">
+                          <span className="column-header-label">Статус</span>
+                          <div className="column-header-controls">
+                            <button
+                              className="status-filter-btn"
+                              title="Цикл по статусам: все → не обработано → одобрено → не одобрено"
+                              onClick={cycleStatusFilter}
+                            >
+                              ▲▼
+                            </button>
+                          </div>
+                        </div>
+                      </th>
+                      <th>
+                        <div className="column-header">
+                          <span className="column-header-label">Оценка</span>
+                        </div>
                       </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {pageCategories.length === 0 && (
+                    {paginatedCategories.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="empty-cell">
-                          Ничего не найдено по текущим фильтрам.
+                        <td className="table-empty" colSpan={7}>
+                          Нет категорий, подходящих под фильтр
                         </td>
                       </tr>
                     )}
 
-                    {pageCategories.map((cat) => {
-                      const isSelected = cat.id === selectedCategoryId;
-                      const rowClass = [
-                        "table-row",
-                        isSelected ? "row-selected" : "",
-                        cat.hasNewItems ? "row-has-new" : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" ");
-
-                      return (
-                        <tr
-                          key={cat.id}
-                          className={rowClass}
-                          onClick={() => setSelectedCategoryId(cat.id)}
-                        >
-                          <td className="cell-id">{cat.id}</td>
-                          <td className="cell-name">{cat.name}</td>
-                          <td className="cell-description">
-                            {cat.shortDescription || "—"}
-                          </td>
-                          <td className="cell-date">
-                            {formatDate(cat.generatedAt)}
-                          </td>
-                          <td className="cell-new">
-                            {cat.hasNewItems ? (
-                              <span className="badge badge-alert">
-                                Да{cat.newItemsCount
-                                  ? ` (+${cat.newItemsCount})`
-                                  : ""}
-                              </span>
-                            ) : (
-                              <span className="badge badge-ok">Нет</span>
-                            )}
-                          </td>
-                          <td className="cell-status">
-                            {STATUS_LABELS[cat.status] || "На проверке"}
-                          </td>
-                          <td className="cell-rating">
-                            {cat.rating != null ? cat.rating : "—"}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {paginatedCategories.map((cat) => (
+                      <tr
+                        key={cat.id}
+                        className={
+                          cat.id === selectedCategoryId
+                            ? "table-row table-row--active"
+                            : "table-row"
+                        }
+                        onClick={() => setSelectedCategoryId(cat.id)}
+                      >
+                        <td>{cat.id}</td>
+                        <td className="table-cell-name">{cat.name}</td>
+                        <td className="table-cell-description">
+                          {cat.description || "—"}
+                        </td>
+                        <td>{formatDate(cat.generatedAt || cat.createdAt)}</td>
+                        <td>
+                          {cat.hasNewItems ? (
+                            <span className="new-items-badge">
+                              Есть новые ({cat.newItemsCount ?? 0})
+                            </span>
+                          ) : (
+                            <span className="new-items-badge new-items-badge--none">
+                              Нет
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          <span
+                            className={`status-badge ${
+                              cat.status === "approved"
+                                ? "status-badge--approved"
+                                : cat.status === "rejected"
+                                ? "status-badge--rejected"
+                                : "status-badge--pending"
+                            }`}
+                          >
+                            {statusLabel(cat.status)}
+                          </span>
+                        </td>
+                        <td>
+                          <StarRating
+                            value={cat.rating ?? 0}
+                            onChange={(v) => handleRatingChange(cat.id, v)}
+                          />
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
-              </div>
 
-              {/* Пагинация */}
-              <div className="pagination">
-                <button
-                  className="page-btn"
-                  disabled={page <= 1}
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                >
-                  «
-                </button>
-                <span className="page-info">
-                  Стр. {page} из {totalPages} (всего {sortedCategories.length})
-                </span>
-                <button
-                  className="page-btn"
-                  disabled={page >= totalPages}
-                  onClick={() =>
-                    setCurrentPage((p) => Math.min(totalPages, p + 1))
-                  }
-                >
-                  »
-                </button>
-              </div>
-            </>
-          )}
-        </section>
-
-        {/* Правая панель: детали категории */}
-        <section className="right-panel">
-          <div className="panel-header">
-            <h2>Детали категории</h2>
-          </div>
-
-          {!selectedCategory && (
-            <div className="info-block">
-              Выберите категорию слева, чтобы посмотреть детали.
-            </div>
-          )}
-
-          {selectedCategory && (
-            <div className="category-details">
-              <div className="details-main">
-                <h3>
-                  [{selectedCategory.id}] {selectedCategory.name}
-                </h3>
-                <p className="details-description">
-                  {selectedCategory.shortDescription || "Описание не задано."}
-                </p>
-
-                <div className="details-meta">
-                  <div>
-                    <span className="meta-label">Дата генерации:</span>{" "}
-                    <span className="meta-value">
-                      {formatDate(selectedCategory.generatedAt)}
-                    </span>
+                <div className="pagination">
+                  <div className="pagination-info">
+                    Страница {currentPage} из {totalPages}
                   </div>
-                  <div>
-                    <span className="meta-label">Статус:</span>{" "}
-                    <span className="meta-value">
-                      {STATUS_LABELS[selectedCategory.status] ||
-                        "На проверке"}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="meta-label">Оценка:</span>{" "}
-                    <span className="meta-value">
-                      {selectedCategory.rating != null
-                        ? selectedCategory.rating
-                        : "—"}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="meta-label">Новые товары:</span>{" "}
-                    <span className="meta-value">
-                      {selectedCategory.hasNewItems ? (
-                        <>
-                          есть
-                          {selectedCategory.newItemsCount
-                            ? ` (${selectedCategory.newItemsCount})`
-                            : ""}
-                        </>
-                      ) : (
-                        "нет"
-                      )}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="meta-label">Всего СТЕ в категории:</span>{" "}
-                    <span className="meta-value">
-                      {selectedCategory.productIds?.length || 0}
-                    </span>
+                  <div className="pagination-buttons">
+                    <button
+                      className="pagination-btn"
+                      disabled={currentPage === 1}
+                      onClick={() => setCurrentPage((p) => p - 1)}
+                    >
+                      ◀
+                    </button>
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(
+                      (page) => (
+                        <button
+                          key={page}
+                          className={`pagination-btn ${
+                            page === currentPage
+                              ? "pagination-btn--active"
+                              : ""
+                          }`}
+                          onClick={() => setCurrentPage(page)}
+                        >
+                          {page}
+                        </button>
+                      )
+                    )}
+                    <button
+                      className="pagination-btn"
+                      disabled={currentPage === totalPages}
+                      onClick={() => setCurrentPage((p) => p + 1)}
+                    >
+                      ▶
+                    </button>
                   </div>
                 </div>
-              </div>
+              </>
+            )}
+          </div>
+        </section>
 
-              <div className="details-features">
-                <h4>Уникальные характеристики категории</h4>
-                {(!selectedCategory.features ||
-                  selectedCategory.features.length === 0) && (
-                  <div className="info-block small">
-                    Для этой категории ещё нет выделенных характеристик.
-                  </div>
-                )}
-                {selectedCategory.features &&
-                  selectedCategory.features.length > 0 && (
-                    <ul className="features-list">
-                      {selectedCategory.features.map((f, idx) => (
-                        <li key={`${f.key}-${f.value}-${idx}`}>
-                          <span className="feature-key">{f.key}:</span>{" "}
-                          <span className="feature-value">{f.value}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-              </div>
+        {/* ПРАВАЯ ПАНЕЛЬ: карточка выбранной категории */}
+        <section className="panel-right">
+          {selectedCategory ? (
+            <CategoryCard
+              category={selectedCategory}
+              onRegenerate={handleRegenerate}
+              onRatingChange={handleRatingChange}
+            />
+          ) : (
+            <div className="card-empty">
+              Выберите категорию слева, чтобы посмотреть детали
             </div>
           )}
         </section>
       </main>
+    </div>
+  );
+}
+
+// ====== КОМПОНЕНТ ОЦЕНКИ ЗВЁЗДАМИ ======
+function StarRating({ value = 0, onChange }) {
+  const stars = [1, 2, 3, 4, 5];
+  return (
+    <div className="stars">
+      {stars.map((s) => (
+        <button
+          key={s}
+          type="button"
+          className={`star ${value >= s ? "star--active" : ""}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onChange?.(s);
+          }}
+        >
+          ★
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ====== КАРТОЧКА КАТЕГОРИИ ======
+function CategoryCard({ category, onRegenerate, onRatingChange }) {
+  const {
+    id,
+    name,
+    description,
+    createdAt,
+    generatedAt,
+    status,
+    rating,
+    features = [],
+    productIds = [],
+    hasNewItems,
+    newItemsCount,
+  } = category;
+
+  const dateToShow = generatedAt || createdAt;
+
+  return (
+    <div className="category-card">
+      <div className="card-header">
+        <div className="card-header-row">
+          <div className="card-title-block">
+            <div className="card-title">{name}</div>
+            <div className="card-id">ID категории: {id}</div>
+          </div>
+          <div className="card-meta">
+            <div className="card-date">
+              Сгенерировано: {formatDate(dateToShow)}
+            </div>
+            <div className="card-status">
+              <span
+                className={`status-badge ${
+                  status === "approved"
+                    ? "status-badge--approved"
+                    : status === "rejected"
+                    ? "status-badge--rejected"
+                    : "status-badge--pending"
+                }`}
+              >
+                {statusLabel(status)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="card-header-row card-header-row--bottom">
+          <div className="card-rating-row">
+            <span className="rating-label">Оценка категории:</span>
+            <StarRating
+              value={rating ?? 0}
+              onChange={(v) => onRatingChange?.(id, v)}
+            />
+          </div>
+          <div className="card-actions">
+            {hasNewItems && (
+              <div className="card-new-items-info">
+                Новые товары в категории: {newItemsCount ?? 0}
+              </div>
+            )}
+            <button
+              className="btn btn-primary"
+              onClick={() => onRegenerate?.(id)}
+            >
+              Перегенерировать категорию
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="card-body">
+        <div className="card-section">
+          <div className="card-section-title">Краткое описание</div>
+          <p className="card-description">
+            {description ||
+              "Описание категории пока не задано. Вы можете перегенерировать его моделью или заполнить вручную через административную панель."}
+          </p>
+        </div>
+
+        <div className="card-section">
+          <div className="card-section-title">Основные характеристики</div>
+
+          {features.length === 0 ? (
+            <p className="card-section-empty">
+              Для этой категории пока не выделены уникальные характеристики.
+            </p>
+          ) : (
+            <div className="features-grid">
+              {features.map((f, idx) => (
+                <div key={`${f.key}-${idx}`} className="feature-pill">
+                  <span className="feature-key">{f.key}</span>
+                  <span className="feature-value">{f.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="card-section">
+          <div className="card-section-title">Товары в категории</div>
+          <div className="products-count">
+            Количество СТЕ в категории: {productIds?.length ?? 0}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
