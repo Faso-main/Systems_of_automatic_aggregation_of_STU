@@ -1,11 +1,10 @@
-# train_characteristics_model.py
-# Обучает мультилейбл-модель, предсказывающую, какие ключи характеристик
-# (Ширина профиля, Диаметр посадочный и т.п.) относятся к товару.
-# Использует онтологию A__llm_itr6.json
-# и исходный CSV result_itr4.csv.
+# train_characteristics_model_v2.py
+# Обучает мультилейбл-модель для предсказания ключей характеристик
+# и сохраняет ПОЛНЫЙ state_dict модели в safetensors.
+#
+# В связке с runtime_characteristics_model_v2.py
 
 import json
-import math
 from pathlib import Path
 from typing import List, Dict, Tuple
 
@@ -18,7 +17,8 @@ import pandas as pd
 import chardet
 from tqdm import tqdm
 
-# === CONFIG ===
+
+# ============================= CONFIG =============================
 
 CSV_PATH = "py_back/rexexp/data/result_itr4.csv"
 ONTOLOGY_PATH = "result/A__llm_itr6.json"
@@ -34,52 +34,40 @@ MAX_LENGTH = 256
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-# === helper для кодировки CSV ===
+# ============================= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =============================
 
 def detect_encoding(path: str) -> str:
     with open(path, "rb") as f:
         return chardet.detect(f.read(20000)).get("encoding", "utf-8")
 
 
-# === парсер характеристик (упрощённая версия из v4) ===
-
 NORMALIZATION_MAP = {
-    # Общие
     "вид продукции товары": "Вид",
     "вид продукции": "Вид",
     "вид товаров": "Вид",
     "вид": "Вид",
-
-    # Шины
     "вид шин, покрышек и камер резиновых": "Тип шины",
     "вид шин": "Тип шины",
     "вид шин пневматические": "Тип шины",
     "вид запчасти": "Тип запчасти",
-
     "номинальная ширина профиля": "Ширина профиля",
     "обозначение номинальной ширины профиля": "Ширина профиля",
     "ширина профиля": "Ширина профиля",
-
     "номинальный посадочный диаметр обода": "Диаметр посадочный",
     "диаметр посадочный": "Диаметр посадочный",
     "посадочный диаметр": "Диаметр посадочный",
-
     "номинальное отношение высоты профиля": "Отношение профиля",
     "отношение высоты профиля": "Отношение профиля",
     "высота профиля": "Отношение профиля",
-
     "назначение пневматических шин": "Назначение",
     "категория использования шины": "Категория использования",
-
     "модель": "Модель",
     "производитель": "Производитель",
     "страна происхождения": "Страна",
     "страна": "Страна",
-
     "индекс нагрузки": "Индекс нагрузки",
     "индекс категории скорости": "Индекс скорости",
     "индекс скорости": "Индекс скорости",
-
     "тип конструкции пневматических шин": "Тип конструкции",
     "тип конструкции": "Тип конструкции",
     "тип": "Тип",
@@ -149,7 +137,7 @@ def build_item_text(row: pd.Series) -> str:
     return " ; ".join(parts)
 
 
-# === 1. Загружаем онтологию и строим пространство ключей ===
+# ============================= ЗАГРУЗКА ОНТОЛОГИИ И ПРОСТРАНСТВА КЛЮЧЕЙ =============================
 
 with open(ONTOLOGY_PATH, "r", encoding="utf-8") as f:
     ontology = json.load(f)
@@ -159,7 +147,6 @@ cat2chars: Dict[str, List[str]] = {
     for cat_id, cat_data in ontology.get("categories", {}).items()
 }
 
-# Множество всех ключей из онтологии
 all_keys_set = set()
 for chars in cat2chars.values():
     for ch in chars:
@@ -174,11 +161,12 @@ id2label = {i: k for k, i in label2id.items()}
 print(f"Всего уникальных ключей характеристик: {len(all_keys)}")
 
 
-# === 2. Загружаем CSV и готовим Dataset ===
+# ============================= DATASET =============================
 
 enc = detect_encoding(CSV_PATH)
 df = pd.read_csv(CSV_PATH, dtype=str, low_memory=False, encoding=enc).fillna("")
 df = df[df["id_категории"].notna()]
+
 
 class CharacteristicsDataset(Dataset):
     def __init__(self, frame: pd.DataFrame):
@@ -192,7 +180,6 @@ class CharacteristicsDataset(Dataset):
         cat_id = str(row["id_категории"])
         text = build_item_text(row)
 
-        # парсим реальные ключи в этом товаре
         pairs = extract_key_value_pairs(text)
         normalized = normalize_characters(pairs)
 
@@ -213,7 +200,7 @@ class CharacteristicsDataset(Dataset):
                     cat_keys.add(k_cat.strip())
             final_keys = item_keys.intersection(cat_keys)
         else:
-            final_keys = item_keys  # fallback: без онтологии
+            final_keys = item_keys
 
         for k in final_keys:
             if k in label2id:
@@ -221,7 +208,6 @@ class CharacteristicsDataset(Dataset):
 
         return {
             "text": text,
-            "category_id": cat_id,
             "labels": y,
         }
 
@@ -230,7 +216,7 @@ dataset = CharacteristicsDataset(df)
 print(f"Размер датасета: {len(dataset)}")
 
 
-# === 3. Модель ===
+# ============================= МОДЕЛЬ =============================
 
 tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_NAME)
 encoder = AutoModel.from_pretrained(BASE_MODEL_NAME).to(device)
@@ -245,14 +231,13 @@ class CharacteristicsModel(nn.Module):
 
     def forward(self, input_ids, attention_mask):
         outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
-        # mean pooling по токенам
         last_hidden = outputs.last_hidden_state  # (batch, seq, hidden)
-        mask = attention_mask.unsqueeze(-1)      # (batch, seq, 1)
+        mask = attention_mask.unsqueeze(-1)
         masked = last_hidden * mask
-        summed = masked.sum(dim=1)               # (batch, hidden)
+        summed = masked.sum(dim=1)
         counts = mask.sum(dim=1).clamp(min=1e-9)
-        pooled = summed / counts                 # (batch, hidden)
-        logits = self.classifier(pooled)         # (batch, num_labels)
+        pooled = summed / counts
+        logits = self.classifier(pooled)
         return logits
 
 
@@ -285,7 +270,7 @@ def collate_fn(batch):
 loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn)
 
 
-# === 4. Обучение ===
+# ============================= TRAIN =============================
 
 for epoch in range(EPOCHS):
     model.train()
@@ -308,18 +293,15 @@ for epoch in range(EPOCHS):
     print(f"[Epoch {epoch+1}] loss = {avg_loss:.4f}")
 
 
-# === 5. Сохранение в safetensors + label_map ===
+# ============================= SAVE =============================
 
 Path(OUTPUT_DIR).mkdir(exist_ok=True)
 
-state = {}
-for k, v in model.encoder.state_dict().items():
-    state[f"encoder.{k}"] = v.cpu()
-for k, v in model.classifier.state_dict().items():
-    state[f"classifier.{k}"] = v.cpu()
+# ВАЖНО: сохраняем ПОЛНЫЙ state_dict БЕЗ изменений ключей
+state_dict = {k: v.cpu() for k, v in model.state_dict().items()}
 
 safetensors_path = Path(OUTPUT_DIR) / "characteristics_model.safetensors"
-save_file(state, str(safetensors_path))
+save_file(state_dict, str(safetensors_path))
 print(f"Модель сохранена в {safetensors_path}")
 
 label_map_path = Path(OUTPUT_DIR) / "label_map.json"
