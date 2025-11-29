@@ -1,5 +1,6 @@
 # universal_characteristics_extractor_v4.py
 # Улучшенная версия: агрессивная чистка мусорных характеристик + TF-IDF + эмбеддинги
+# + сохранение названия категории в онтологию
 
 import re
 import json
@@ -144,7 +145,7 @@ def extract_key_value_pairs(text: str) -> List[Tuple[str, str]]:
     """
     text = preprocess(text)
 
-    pattern = r"([A-Za-zА-Яа-яёЁ0-9 ,\-()\"«»]{2,80}?)\s*:\s*([^;,\n]+)"
+    pattern = r'([A-Za-zА-Яа-яёЁ0-9 ,\-()"«»]{2,80}?)\s*:\s*([^;,\n]+)'
     matches = re.findall(pattern, text)
 
     pairs: List[Tuple[str, str]] = []
@@ -357,9 +358,13 @@ def load_data() -> pd.DataFrame:
     return df
 
 
-def extract_by_categories(df: pd.DataFrame) -> Dict[str, List[str]]:
+def extract_by_categories(df: pd.DataFrame):
     """
     Для каждой категории собираем список нормализованных "NormKey: Value".
+    Возвращаем:
+      - category_chars: cat_id -> [chars]
+      - category_counts: cat_id -> num_items_with_chars
+      - category_names: cat_id -> название_категории (первое непустое)
     """
     category_chars: Dict[str, List[str]] = defaultdict(list)
     category_counts: Dict[str, int] = defaultdict(int)
@@ -375,12 +380,30 @@ def extract_by_categories(df: pd.DataFrame) -> Dict[str, List[str]]:
             category_chars[cat].extend(normalized)
             category_counts[cat] += 1
 
-    return category_chars, category_counts
+    # мапа id_категории -> название_категории (первое непустое значение)
+    category_names: Dict[str, str] = {}
+    if "название_категории" in df.columns:
+        grouped = df.groupby("id_категории")["название_категории"]
+        for cat_id, series in grouped:
+            name = ""
+            for v in series:
+                v = str(v).strip()
+                if v and v not in ("nan", "None"):
+                    name = v
+                    break
+            category_names[str(cat_id)] = name
+
+    return category_chars, category_counts, category_names
 
 
 # ============================= СОХРАНЕНИЕ ОНТОЛОГИИ =============================
 
-def save_ontology(significant: Dict[str, List[str]], counts: Dict[str, int], total_rows: int):
+def save_ontology(
+    significant: Dict[str, List[str]],
+    counts: Dict[str, int],
+    category_names: Dict[str, str],
+    total_rows: int,
+):
     Path(OUTPUT_DIR).mkdir(exist_ok=True)
 
     out = {
@@ -397,6 +420,7 @@ def save_ontology(significant: Dict[str, List[str]], counts: Dict[str, int], tot
 
     for cat, chars in significant.items():
         out["categories"][cat] = {
+            "category_name": category_names.get(cat, ""),
             "characteristics": chars,
             "total_items": counts.get(cat, 0),
         }
@@ -414,6 +438,7 @@ def save_ontology(significant: Dict[str, List[str]], counts: Dict[str, int], tot
             csv_rows.append(
                 {
                     "category_id": cat,
+                    "category_name": data.get("category_name", ""),
                     "characteristic": ch,
                     "total_items": data["total_items"],
                 }
@@ -430,11 +455,11 @@ def main():
     logger.info("🚀 Старт universal_characteristics_extractor_v4")
 
     df = load_data()
-    category_chars, category_counts = extract_by_categories(df)
+    category_chars, category_counts, category_names = extract_by_categories(df)
 
     significant = compute_significant_features(category_chars)
 
-    save_ontology(significant, category_counts, len(df))
+    save_ontology(significant, category_counts, category_names, len(df))
 
     logger.info("✅ Онтология V4 построена.")
 
