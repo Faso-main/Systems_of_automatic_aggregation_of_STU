@@ -1,7 +1,7 @@
 # train_characteristics_model.py
 # Обучает мультилейбл-модель, предсказывающую, какие ключи характеристик
 # (Ширина профиля, Диаметр посадочный и т.п.) относятся к товару.
-# Использует онтологию universal_characteristics_ontology_v4.json
+# Использует онтологию A__llm_itr6.json
 # и исходный CSV result_itr4.csv.
 
 import json
@@ -21,7 +21,7 @@ from tqdm import tqdm
 # === CONFIG ===
 
 CSV_PATH = "py_back/rexexp/data/result_itr4.csv"
-ONTOLOGY_PATH = "result/universal_characteristics_ontology_v4.json"
+ONTOLOGY_PATH = "result/A__llm_itr6.json"
 OUTPUT_DIR = "trained_models"
 
 BASE_MODEL_NAME = "ai-forever/sbert_large_mt_nlu_ru"
