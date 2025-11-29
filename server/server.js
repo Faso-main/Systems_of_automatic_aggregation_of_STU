@@ -343,6 +343,37 @@ app.post('/api/products/by-ids', async (req, res) => {
   }
 });
 
+app.get('/api/search/categories', async (req, res) => {
+  try {
+    const q = (req.query.q || '').toString();
+    if (!q.trim()) {
+      return res.json([]);
+    }
+
+    const params = new URLSearchParams({
+      q,
+      top_k: '10',
+      min_score: '40',
+    });
+
+    const resp = await fetch(
+      `http://127.0.0.1:8001/search/categories?${params.toString()}`
+    );
+
+    if (!resp.ok) {
+      console.error('search service error', resp.status);
+      return res.status(500).json({ error: 'search service unavailable' });
+    }
+
+    const data = await resp.json();
+    res.json(data);
+  } catch (err) {
+    console.error('Ошибка /api/search/categories:', err);
+    res.status(500).json({ error: 'internal search error' });
+  }
+});
+
+
 app.listen(PORT, () => {
   console.log(`API сервер запущен на http://localhost:${PORT}`);
 });
