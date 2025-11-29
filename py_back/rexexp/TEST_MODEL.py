@@ -46,7 +46,7 @@ def load_candidates_from_csv(csv_path: str,
     melted = df.melt(value_vars=spec_cols, value_name="spec").dropna(subset=["spec"])
 
     # делим "Ключ: Значение"
-    parts = melted["spec"].astype(str).str.split(":", 1, expand=True)
+    parts = melted["spec"].astype(str).str.split(":", n=1, expand=True)
     keys = parts[0].astype(str).str.strip()
 
     # фильтрация по длине и простейшему шуму
