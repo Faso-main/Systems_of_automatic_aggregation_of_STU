@@ -134,6 +134,7 @@ function App() {
   };
 
   const handleRatingChange = async (id, rating) => {
+    // оптимистично обновляем на фронте
     setCategories((prev) =>
       prev.map((c) => (c.id === id ? { ...c, rating } : c))
     );
@@ -147,6 +148,25 @@ function App() {
     } catch (e) {
       console.error("Ошибка сохранения рейтинга", e);
       alert("Не удалось сохранить рейтинг категории");
+    }
+  };
+
+  // обновление имени / описания категории
+  const handleCategoryUpdate = async (id, updates) => {
+    // оптимистичное обновление
+    setCategories((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
+    );
+
+    try {
+      await fetch(`${API_BASE}/api/categories/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+    } catch (e) {
+      console.error("Ошибка сохранения изменений категории", e);
+      alert("Не удалось сохранить изменения категории");
     }
   };
 
@@ -422,13 +442,14 @@ function App() {
           </div>
         </section>
 
-        {/* ПРАВАЯ ПАНЕЛЬ: карточка выбранной категории */}
+        {/* ПРАВАЯ ПАНЕЛЬ: карточка выбранной категории (редактируемая) */}
         <section className="panel-right">
           {selectedCategory ? (
             <CategoryCard
               category={selectedCategory}
               onRegenerate={handleRegenerate}
               onRatingChange={handleRatingChange}
+              onUpdateCategory={handleCategoryUpdate}
             />
           ) : (
             <div className="card-empty">
@@ -463,8 +484,8 @@ function StarRating({ value = 0, onChange }) {
   );
 }
 
-// ====== КАРТОЧКА КАТЕГОРИИ ======
-function CategoryCard({ category, onRegenerate, onRatingChange }) {
+// ====== КАРТОЧКА КАТЕГОРИИ (справа) ======
+function CategoryCard({ category, onRegenerate, onRatingChange, onUpdateCategory }) {
   const {
     id,
     name,
@@ -479,14 +500,44 @@ function CategoryCard({ category, onRegenerate, onRatingChange }) {
     newItemsCount,
   } = category;
 
+  const [nameDraft, setNameDraft] = useState(name || "");
+  const [descriptionDraft, setDescriptionDraft] = useState(description || "");
+  const [saving, setSaving] = useState(false);
+
   const dateToShow = generatedAt || createdAt;
+
+  // когда выбираем другую категорию — сбрасываем драфты
+  useEffect(() => {
+    setNameDraft(name || "");
+    setDescriptionDraft(description || "");
+    setSaving(false);
+  }, [id, name, description]);
+
+  const handleSave = async () => {
+    const updates = {
+      name: nameDraft.trim() || name,
+      description: descriptionDraft.trim(),
+    };
+
+    try {
+      setSaving(true);
+      await onUpdateCategory?.(id, updates);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="category-card">
       <div className="card-header">
         <div className="card-header-row">
           <div className="card-title-block">
-            <div className="card-title">{name}</div>
+            <label className="card-field-label">Название категории</label>
+            <input
+              className="input card-title-input"
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+            />
             <div className="card-id">ID категории: {id}</div>
           </div>
           <div className="card-meta">
@@ -524,8 +575,17 @@ function CategoryCard({ category, onRegenerate, onRatingChange }) {
               </div>
             )}
             <button
+              className="btn btn-ghost btn-small"
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+            >
+              {saving ? "Сохранение..." : "Сохранить изменения"}
+            </button>
+            <button
               className="btn btn-primary"
               onClick={() => onRegenerate?.(id)}
+              type="button"
             >
               Перегенерировать категорию
             </button>
@@ -536,10 +596,13 @@ function CategoryCard({ category, onRegenerate, onRatingChange }) {
       <div className="card-body">
         <div className="card-section">
           <div className="card-section-title">Краткое описание</div>
-          <p className="card-description">
-            {description ||
-              "Описание категории пока не задано. Вы можете перегенерировать его моделью или заполнить вручную через административную панель."}
-          </p>
+          <textarea
+            className="input card-description-input"
+            rows={4}
+            placeholder="Опишите, что за категория и по каким признакам товары должны в неё попадать."
+            value={descriptionDraft}
+            onChange={(e) => setDescriptionDraft(e.target.value)}
+          />
         </div>
 
         <div className="card-section">

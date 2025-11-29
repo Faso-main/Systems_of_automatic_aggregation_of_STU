@@ -615,3 +615,25 @@ body {
   margin-right: 8px;
   white-space: nowrap;
 }
+
+/* Редактируемые поля в карточке категории */
+
+.card-field-label {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.card-title-input {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.card-description-input {
+  font-size: 13px;
+  line-height: 1.4;
+  resize: vertical;
+  min-height: 80px;
+}
