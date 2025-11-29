@@ -1,5 +1,5 @@
 // src/App.jsx
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import "./styles.css";
 
 const API_BASE = "https://faso312.ru";
@@ -29,8 +29,16 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // состояние модалки: { id, name, productIds, products, loading, error }
+  // модалка с товарами
   const [productsModal, setProductsModal] = useState(null);
+
+  // глобальный умный поиск (через сервис)
+  const [globalQuery, setGlobalQuery] = useState("");
+  const [globalResults, setGlobalResults] = useState([]);
+  const [globalLoading, setGlobalLoading] = useState(false);
+  const [globalError, setGlobalError] = useState("");
+  const [showGlobalDropdown, setShowGlobalDropdown] = useState(false);
+  const globalSearchTimeout = useRef(null);
 
   // ====== Загрузка категорий ======
   useEffect(() => {
@@ -226,7 +234,6 @@ function App() {
     if (!category) return;
     const ids = category.productIds || [];
 
-    // сначала ставим состояние "открыто, но грузим"
     setProductsModal({
       id: category.id,
       name: category.name,
@@ -236,12 +243,58 @@ function App() {
       error: "",
     });
 
-    // и отдельно асинхронно дёргаем бэк
     fetchProductsForModal(category.id, ids);
   };
 
   const handleCloseProductsModal = () => {
     setProductsModal(null);
+  };
+
+  // ====== Глобальный умный поиск ======
+
+  const handleGlobalSearchChange = (e) => {
+    const value = e.target.value;
+    setGlobalQuery(value);
+    setGlobalError("");
+
+    if (globalSearchTimeout.current) {
+      clearTimeout(globalSearchTimeout.current);
+    }
+
+    if (!value.trim()) {
+      setGlobalResults([]);
+      setShowGlobalDropdown(false);
+      return;
+    }
+
+    globalSearchTimeout.current = setTimeout(async () => {
+      try {
+        setGlobalLoading(true);
+        const params = new URLSearchParams({ q: value });
+        const res = await fetch(
+          `${API_BASE}/api/search/categories?${params.toString()}`
+        );
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        setGlobalResults(data || []);
+        setShowGlobalDropdown((data || []).length > 0);
+      } catch (err) {
+        console.error("Ошибка умного поиска:", err);
+        setGlobalError("Ошибка поиска");
+        setGlobalResults([]);
+        setShowGlobalDropdown(false);
+      } finally {
+        setGlobalLoading(false);
+      }
+    }, 300);
+  };
+
+  const handleGlobalResultClick = (id) => {
+    setSelectedCategoryId(id);
+    setShowGlobalDropdown(false);
+    setGlobalQuery("");
   };
 
   return (
@@ -267,6 +320,46 @@ function App() {
           <div className="toolbar-title">Категории товаров</div>
           <div className="categories-count">
             Всего: {totalCount} • По фильтру: {filteredCount}
+          </div>
+        </div>
+
+        {/* Глобальный умный поиск */}
+        <div className="toolbar-right">
+          <div className="global-search">
+            <input
+              className="input global-search-input"
+              placeholder="Умный поиск по категориям..."
+              value={globalQuery}
+              onChange={handleGlobalSearchChange}
+              onFocus={() => {
+                if (globalResults.length > 0) setShowGlobalDropdown(true);
+              }}
+            />
+            {globalLoading && (
+              <div className="global-search-spinner">...</div>
+            )}
+
+            {showGlobalDropdown && globalResults.length > 0 && (
+              <div className="global-search-dropdown">
+                {globalResults.map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    className="global-search-item"
+                    onClick={() => handleGlobalResultClick(r.id)}
+                  >
+                      <div className="global-search-item-main">{r.name}</div>
+                    <div className="global-search-item-sub">
+                      ID: {r.id} • {Math.round(r.score)}%
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {globalError && (
+              <div className="global-search-error">{globalError}</div>
+            )}
           </div>
         </div>
       </div>
@@ -613,14 +706,6 @@ function CategoryCard({
               {saving ? "Сохранение..." : "Сохранить изменения"}
             </button>
             <button
-              type="button"
-              className="btn btn-ghost btn-small"
-              onClick={() => onShowProducts?.()}
-              disabled={!productIds || productIds.length === 0}
-            >
-              Показать все СТЕ
-            </button>
-            <button
               className="btn btn-primary"
               onClick={() => onRegenerate?.(id)}
               type="button"
@@ -672,6 +757,14 @@ function CategoryCard({
             <span className="products-count">
               Количество СТЕ в категории: {productIds?.length ?? 0}
             </span>
+            <button
+              type="button"
+              className="btn btn-ghost btn-small"
+              onClick={() => onShowProducts?.()}
+              disabled={!productIds || productIds.length === 0}
+            >
+              Показать все СТЕ
+            </button>
           </div>
         </div>
       </div>
@@ -728,15 +821,16 @@ function ProductsModal({ data, onClose }) {
                     const specsText =
                       typeof p.raw_specs === "string" ? p.raw_specs : "";
                     const specsLines = specsText
-                      ? specsText.split(";").map((s) => s.trim()).filter(Boolean)
+                      ? specsText
+                          .split(";")
+                          .map((s) => s.trim())
+                          .filter(Boolean)
                       : [];
 
                     return (
                       <tr key={p.id}>
                         <td className="products-col-id">{p.id}</td>
-                        <td className="products-col-name">
-                          {p.name || "—"}
-                        </td>
+                        <td className="products-col-name">{p.name || "—"}</td>
                         <td className="products-col-producer">
                           {p.producer || "—"}
                         </td>
@@ -766,6 +860,5 @@ function ProductsModal({ data, onClose }) {
     </div>
   );
 }
-
 
 export default App;

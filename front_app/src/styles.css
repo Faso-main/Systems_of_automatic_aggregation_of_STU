@@ -855,3 +855,73 @@ body {
 .products-spec-line:last-child {
   margin-bottom: 0;
 }
+
+
+/* ====== ГЛОБАЛЬНЫЙ ПОИСК В ШАПКЕ ====== */
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.global-search {
+  position: relative;
+  min-width: 260px;
+}
+
+.global-search-input {
+  padding-right: 28px;
+}
+
+.global-search-spinner {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.global-search-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 2px;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
+  max-height: 260px;
+  overflow-y: auto;
+  z-index: 20;
+}
+
+.global-search-item {
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.global-search-item:hover {
+  background: #eff6ff;
+}
+
+.global-search-item-main {
+  font-size: 13px;
+  color: #111827;
+}
+
+.global-search-item-sub {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.global-search-error {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #b91c1c;
+}
