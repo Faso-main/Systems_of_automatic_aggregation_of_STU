@@ -6,10 +6,9 @@ import { Pool } from 'pg';
 const app = express();
 const PORT = 5000;
 
-// CORS: Vite обычно на 5173, но добавим и 3000 на всякий
 app.use(
   cors({
-    origin: ['https://faso312.ru', 'http://localhost:3000'],
+    origin: ['https://faso312.ru'],
     credentials: false,
   })
 );
