@@ -177,6 +177,7 @@ app.get('/api/categories/:id', async (req, res) => {
 // НОВОЕ: POST /api/categories/:id/rating
 // Сохранение оценки категории (звёздочки)
 // ===============================
+// Рейтинг категории админом
 app.post('/api/categories/:id/rating', async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -185,8 +186,9 @@ app.post('/api/categories/:id/rating', async (req, res) => {
     }
 
     const { rating } = req.body || {};
-
     const ratingInt = Number(rating);
+
+    // рейтинг 1–5, как договоримся
     if (!Number.isInteger(ratingInt) || ratingInt < 1 || ratingInt > 5) {
       return res
         .status(400)
@@ -204,7 +206,6 @@ app.post('/api/categories/:id/rating', async (req, res) => {
     );
 
     if (upd.rowCount === 0) {
-      // вот этот 404 мы и видим, если в текущей БД нет такой строки
       return res.status(404).json({ error: 'Категория не найдена' });
     }
 
@@ -214,6 +215,7 @@ app.post('/api/categories/:id/rating', async (req, res) => {
     return res.status(500).json({ error: 'Не удалось обновить рейтинг' });
   }
 });
+
 
 
 app.patch('/api/categories/:id', async (req, res) => {
