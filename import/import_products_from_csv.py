@@ -3,15 +3,16 @@ import csv
 from pathlib import Path
 
 import psycopg2
-from psycopg2.extras import execute_batch, Json
+from psycopg2.extras import execute_batch
 
-# Путь к CSV
+# Путь к CSV с результатами импорта
 CSV_PATH = Path("py_back/rexexp/data/result_itr4.csv")
 
+# Настройки подключения к БД
 DB_CONFIG = {
     "dbname": "th3_db",
     "user": "th3_app",
-    "password": "1234",      # поправь, если нужен другой пароль
+    "password": "1234",      # поправь, если пароль другой
     "host": "localhost",
     "port": 5432,
 }
@@ -19,30 +20,33 @@ DB_CONFIG = {
 BATCH_SIZE = 1000
 
 
-def build_raw_specs(row: dict) -> list[dict]:
+def build_specs_as_text(row: dict) -> str | None:
     """
-    Собираем spec1..specN в массив:
-    [
-      {"key": "Плотность ткани", "value": "235 гр/м2"},
-      ...
-    ]
+    Собираем spec1..specN в одну строку:
+
+    "Плотность ткани: 235 гр/м2; Цвет: Тёмно-синий; Размер: XL"
+
+    Если нет ни одной непустой spec — возвращаем None.
     """
-    specs = []
+    parts: list[str] = []
+
     for key, value in row.items():
         if not key.startswith("spec"):
             continue
         if value is None:
             continue
+
         value = str(value).strip()
         if not value:
             continue
 
         if ":" in value:
             k, v = value.split(":", 1)
-            specs.append({"key": k.strip(), "value": v.strip()})
+            parts.append(f"{k.strip()}: {v.strip()}")
         else:
-            specs.append({"key": None, "value": value})
-    return specs
+            parts.append(value)
+
+    return "; ".join(parts) if parts else None
 
 
 def main():
@@ -56,6 +60,7 @@ def main():
     cur = conn.cursor()
 
     # SQL с UPSERT по id
+    # Предполагается, что product.raw_specs имеет тип TEXT (или совместимый).
     sql = """
     INSERT INTO product (
         id,
@@ -92,7 +97,7 @@ def main():
 
     total = 0
     skipped_no_name = 0
-    batch = []
+    batch: list[dict] = []
 
     with CSV_PATH.open("r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -128,8 +133,8 @@ def main():
                 "producer": (row.get("производитель") or "").strip() or None,
                 "country": (row.get("страна_происхождения") or "").strip() or None,
                 "image_url": (row.get("ссылка_на_картинку") or "").strip() or None,
-                # raw_specs - JSON-массив
-                "raw_specs": Json(build_raw_specs(row)),
+                # Все spec* в одну строку через "; "
+                "raw_specs": build_specs_as_text(row),
             }
 
             batch.append(product)
@@ -138,13 +143,19 @@ def main():
             if len(batch) >= BATCH_SIZE:
                 execute_batch(cur, sql, batch, page_size=BATCH_SIZE)
                 conn.commit()
-                print(f"Импортировано {total} строк (пока), пропущено без name: {skipped_no_name}")
+                print(
+                    f"Импортировано {total} строк (пока), "
+                    f"пропущено без name: {skipped_no_name}"
+                )
                 batch.clear()
 
     if batch:
         execute_batch(cur, sql, batch, page_size=BATCH_SIZE)
         conn.commit()
-        print(f"Импортировано всего {total} строк, пропущено без name: {skipped_no_name}")
+        print(
+            f"Импортировано всего {total} строк, "
+            f"пропущено без name: {skipped_no_name}"
+        )
 
     cur.close()
     conn.close()
