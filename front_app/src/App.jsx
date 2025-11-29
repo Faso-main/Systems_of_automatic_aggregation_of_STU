@@ -3,7 +3,7 @@ import React, { useMemo, useState, useEffect } from "react";
 import "./styles.css";
 
 const API_BASE = "https://faso312.ru";
-const PAGE_SIZE = 10; 
+const PAGE_SIZE = 15; // 15 строк на странице
 
 const formatDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString("ru-RU") : "—";
@@ -28,8 +28,6 @@ function App() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  // состояние модалки со списком СТЕ
   const [productsModal, setProductsModal] = useState(null);
 
   // ====== Загрузка категорий с бэка ======
@@ -184,7 +182,6 @@ function App() {
     setCurrentPage(1);
   };
 
-  // открыть модалку со СТЕ для выбранной категории
   const handleShowProductsModal = (category) => {
     if (!category) return;
     setProductsModal({
@@ -675,7 +672,6 @@ function CategoryCard({
   );
 }
 
-// ====== МОДАЛКА СО СПИСКОМ СТЕ ======
 function ProductsModal({ data, onClose }) {
   if (!data) return null;
   const { name, productIds = [] } = data;
