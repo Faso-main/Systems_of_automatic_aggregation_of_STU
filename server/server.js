@@ -9,7 +9,7 @@ const PORT = 5000;
 // CORS: Vite обычно на 5173, но добавим и 3000 на всякий
 app.use(
   cors({
-    origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000'],
+    origin: ['https://faso312.ru', 'http://localhost:3000'],
     credentials: false,
   })
 );
