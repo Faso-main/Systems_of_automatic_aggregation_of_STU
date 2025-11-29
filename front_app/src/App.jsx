@@ -2,7 +2,8 @@
 import React, { useMemo, useState, useEffect } from "react";
 import "./styles.css";
 
-const API_BASE = 'https://faso312.ru';
+const API_BASE = "https://faso312.ru";
+const PAGE_SIZE = 15; // 15 строк на странице
 
 const formatDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString("ru-RU") : "—";
@@ -16,6 +17,8 @@ function App() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+
+  const [currentPage, setCurrentPage] = useState(1); // пагинация
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -47,11 +50,17 @@ function App() {
     loadCategories();
   }, []);
 
+  // Сброс страницы при изменении фильтров или списка категорий
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterId, filterStatus, dateFrom, dateTo, categories]);
+
   const selectedCategory = useMemo(
     () => categories.find((c) => c.id === selectedCategoryId) ?? null,
     [categories, selectedCategoryId]
   );
 
+  // ФИЛЬТРАЦИЯ ПО ВСЕЙ БД (по всему массиву categories)
   const filteredCategories = useMemo(
     () =>
       categories.filter((cat) => {
@@ -76,6 +85,21 @@ function App() {
       }),
     [categories, search, filterId, filterStatus, dateFrom, dateTo]
   );
+
+  // ПАГИНАЦИЯ ПО РЕЗУЛЬТАТАМ ФИЛЬТРАЦИИ
+  const totalPages = useMemo(
+    () =>
+      filteredCategories.length > 0
+        ? Math.ceil(filteredCategories.length / PAGE_SIZE)
+        : 1,
+    [filteredCategories.length]
+  );
+
+  const paginatedCategories = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const end = start + PAGE_SIZE;
+    return filteredCategories.slice(start, end);
+  }, [filteredCategories, currentPage]);
 
   const handleRegenerate = async (id) => {
     try {
@@ -199,68 +223,118 @@ function App() {
                 <div className="table-empty">{error}</div>
               </div>
             ) : (
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>ID категории</th>
-                    <th>Название категории</th>
-                    <th>Описание</th>
-                    <th>Дата генерации</th>
-                    <th>Статус</th>
-                    <th>Оценка</th>
-                    <th>Действия</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredCategories.length === 0 && (
+              <>
+                <table className="table">
+                  <thead>
                     <tr>
-                      <td className="table-empty" colSpan={7}>
-                        Нет категорий, подходящих под фильтр
-                      </td>
+                      <th>ID категории</th>
+                      <th>Название категории</th>
+                      <th>Описание</th>
+                      <th>Дата генерации</th>
+                      <th>Статус</th>
+                      <th>Оценка</th>
+                      <th>Действия</th>
                     </tr>
-                  )}
-                  {filteredCategories.map((cat) => (
-                    <tr
-                      key={cat.id}
-                      className={
-                        cat.id === selectedCategoryId ? "row-selected" : ""
-                      }
-                      onClick={() => setSelectedCategoryId(cat.id)}
-                    >
-                      <td>{cat.id}</td>
-                      <td className="cell-link">{cat.name}</td>
-                      <td className="cell-desc">
-                        {cat.description || "—"}
-                      </td>
-                      <td>{formatDate(cat.createdAt)}</td>
-                      <td>
-                        {cat.status === "approved" ? (
-                          <span className="badge badge-success">Да</span>
-                        ) : (
-                          <span className="badge badge-danger">Нет</span>
-                        )}
-                      </td>
-                      <td>
-                        <StarRating
-                          value={cat.rating || 0}
-                          onChange={(r) => handleRatingChange(cat.id, r)}
-                        />
-                      </td>
-                      <td>
-                        <button
-                          className="btn btn-sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRegenerate(cat.id);
-                          }}
-                        >
-                          Перегенерировать
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {paginatedCategories.length === 0 && (
+                      <tr>
+                        <td className="table-empty" colSpan={7}>
+                          Нет категорий, подходящих под фильтр
+                        </td>
+                      </tr>
+                    )}
+                    {paginatedCategories.map((cat) => (
+                      <tr
+                        key={cat.id}
+                        className={
+                          cat.id === selectedCategoryId ? "row-selected" : ""
+                        }
+                        onClick={() => setSelectedCategoryId(cat.id)}
+                      >
+                        <td>{cat.id}</td>
+                        <td className="cell-link">{cat.name}</td>
+                        <td className="cell-desc">
+                          {cat.description || "—"}
+                        </td>
+                        <td>{formatDate(cat.createdAt)}</td>
+                        <td>
+                          {cat.status === "approved" ? (
+                            <span className="badge badge-success">Да</span>
+                          ) : (
+                            <span className="badge badge-danger">Нет</span>
+                          )}
+                        </td>
+                        <td>
+                          <StarRating
+                            value={cat.rating || 0}
+                            onChange={(r) => handleRatingChange(cat.id, r)}
+                          />
+                        </td>
+                        <td>
+                          <button
+                            className="btn btn-sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRegenerate(cat.id);
+                            }}
+                          >
+                            Перегенерировать
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {/* ПАГИНАЦИЯ ПОД ТАБЛИЦЕЙ */}
+                {filteredCategories.length > 0 && (
+                  <div className="pagination">
+                    <div className="pagination-info">
+                      Найдено: {filteredCategories.length} категорий
+                    </div>
+                    <div className="pagination-controls">
+                      <button
+                        className="btn btn-sm"
+                        onClick={() => setCurrentPage(1)}
+                        disabled={currentPage === 1}
+                      >
+                        «
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        onClick={() =>
+                          setCurrentPage((p) => Math.max(1, p - 1))
+                        }
+                        disabled={currentPage === 1}
+                      >
+                        ‹
+                      </button>
+                      <span className="pagination-page-label">
+                        Страница {currentPage} из {totalPages}
+                      </span>
+                      <button
+                        className="btn btn-sm"
+                        onClick={() =>
+                          setCurrentPage((p) =>
+                            Math.min(totalPages, p + 1)
+                          )
+                        }
+                        disabled={currentPage === totalPages}
+                      >
+                        ›
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        onClick={() => setCurrentPage(totalPages)}
+                        disabled={currentPage === totalPages}
+                      >
+                        »
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </section>
@@ -326,15 +400,8 @@ function CategoryCard({ category, onRegenerate, onRatingChange }) {
   const colors = colorsFeature?.values || [];
   const sizes = sizesFeature?.values || [];
 
-  const [selectedColor, setSelectedColor] = useState(
-    colors[0] || "—"
-  );
-  const [selectedSize, setSelectedSize] = useState(
-    sizes[0] || "—"
-  );
-
-  // если категория поменялась — можно было бы сбросить стейт,
-  // но компонент размонтируется и смонтируется заново, так что ок
+  const [selectedColor, setSelectedColor] = useState(colors[0] || "—");
+  const [selectedSize, setSelectedSize] = useState(sizes[0] || "—");
 
   return (
     <div className="card">
@@ -361,6 +428,9 @@ function CategoryCard({ category, onRegenerate, onRatingChange }) {
       </div>
 
       <div className="card-body">
+        <div className="image-placeholder">
+          Здесь может быть превью товаров категории
+        </div>
 
         <div className="card-info">
           <div className="card-rating-row">
@@ -381,8 +451,7 @@ function CategoryCard({ category, onRegenerate, onRatingChange }) {
               <ul style={{ margin: 0, paddingLeft: 16, fontSize: 13 }}>
                 {features.map((f) => (
                   <li key={f.key}>
-                    <b>{f.key}:</b>{" "}
-                    {(f.values || []).join(", ")}
+                    <b>{f.key}:</b> {(f.values || []).join(", ")}
                   </li>
                 ))}
               </ul>
@@ -403,9 +472,7 @@ function CategoryCard({ category, onRegenerate, onRatingChange }) {
                           key={color}
                           className={
                             "chip " +
-                            (color === selectedColor
-                              ? "chip-selected"
-                              : "")
+                            (color === selectedColor ? "chip-selected" : "")
                           }
                           onClick={() => setSelectedColor(color)}
                         >
@@ -425,9 +492,7 @@ function CategoryCard({ category, onRegenerate, onRatingChange }) {
                           key={size}
                           className={
                             "chip " +
-                            (size === selectedSize
-                              ? "chip-selected"
-                              : "")
+                            (size === selectedSize ? "chip-selected" : "")
                           }
                           onClick={() => setSelectedSize(size)}
                         >
@@ -439,8 +504,7 @@ function CategoryCard({ category, onRegenerate, onRatingChange }) {
                 )}
 
                 <div className="variant-summary">
-                  Текущая вариация:{" "}
-                  <b>{selectedColor}</b>
+                  Текущая вариация: <b>{selectedColor}</b>
                   {sizes.length > 0 && (
                     <>
                       , размер <b>{selectedSize}</b>

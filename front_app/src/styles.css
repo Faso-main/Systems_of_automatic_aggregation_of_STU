@@ -470,3 +470,28 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-top: 1px solid #e3e6ec;
+  background: #f9fafb;
+  font-size: 12px;
+}
+
+.pagination-info {
+  color: #6b7280;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pagination-page-label {
+  font-size: 12px;
+  color: #4b5563;
+}
