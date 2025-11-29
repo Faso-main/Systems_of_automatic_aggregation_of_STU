@@ -686,7 +686,7 @@ function ProductsModal({ data, onClose }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
-        className="modal"
+        className="modal modal-wide"
         onClick={(e) => {
           e.stopPropagation();
         }}
@@ -712,44 +712,60 @@ function ProductsModal({ data, onClose }) {
           ) : products.length === 0 ? (
             <p>По указанным ID товаров в БД ничего не найдено.</p>
           ) : (
-            <ul className="products-list">
-              {products.map((p) => (
-                <li key={p.id} className="products-list-item">
-                  <div className="products-item-header">
-                    <span className="products-list-id">ID: {p.id}</span>
-                    {p.name && (
-                      <span className="products-list-name"> — {p.name}</span>
-                    )}
-                  </div>
+            <div className="products-table-wrapper">
+              <table className="products-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Наименование</th>
+                    <th>Производитель</th>
+                    <th>Страна</th>
+                    <th>Характеристики</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {products.map((p) => {
+                    const specsText =
+                      typeof p.raw_specs === "string" ? p.raw_specs : "";
+                    const specsLines = specsText
+                      ? specsText.split(";").map((s) => s.trim()).filter(Boolean)
+                      : [];
 
-                  <dl className="product-fields">
-                    {Object.entries(p)
-                      .filter(
-                        ([key]) =>
-                          key !== "id" &&
-                          key !== "category_id" &&
-                          key !== "created_at" &&
-                          key !== "updated_at"
-                      )
-                      .map(([key, value]) => (
-                        <div key={key} className="product-field-row">
-                          <dt>{key}</dt>
-                          <dd>
-                            {value === null || value === undefined
-                              ? "—"
-                              : String(value)}
-                          </dd>
-                        </div>
-                      ))}
-                  </dl>
-                </li>
-              ))}
-            </ul>
+                    return (
+                      <tr key={p.id}>
+                        <td className="products-col-id">{p.id}</td>
+                        <td className="products-col-name">
+                          {p.name || "—"}
+                        </td>
+                        <td className="products-col-producer">
+                          {p.producer || "—"}
+                        </td>
+                        <td className="products-col-country">
+                          {p.country || "—"}
+                        </td>
+                        <td className="products-col-specs">
+                          {specsLines.length === 0 ? (
+                            <span>—</span>
+                          ) : (
+                            specsLines.map((line, idx) => (
+                              <div key={idx} className="products-spec-line">
+                                {line}
+                              </div>
+                            ))
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </div>
     </div>
   );
 }
+
 
 export default App;
