@@ -8,7 +8,7 @@ from datetime import datetime
 # --------------------------
 RUNTIME_PATH = "PROD_runtime_V2_READY.json"
 ITEMS_ITR3_PATH = "runtime_llm_items_itr3.json"
-ONTOLOGY_PATH = "universal_characteristics_ontology_v4.json"
+ONTOLOGY_PATH = "UCOV4.json.json"
 
 # --------------------------
 #  ПОДКЛЮЧЕНИЕ К БД
