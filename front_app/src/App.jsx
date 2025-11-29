@@ -18,6 +18,7 @@ function App() {
   const [categories, setCategories] = useState([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
 
+  // локальный текстовый фильтр + умный поиск используют ОДНО поле
   const [search, setSearch] = useState("");
   const [filterId, setFilterId] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -32,13 +33,10 @@ function App() {
   // модалка с товарами
   const [productsModal, setProductsModal] = useState(null);
 
-  // глобальный умный поиск (через сервис)
-  const [globalQuery, setGlobalQuery] = useState("");
-  const [globalResults, setGlobalResults] = useState([]);
-  const [globalLoading, setGlobalLoading] = useState(false);
-  const [globalError, setGlobalError] = useState("");
-  const [showGlobalDropdown, setShowGlobalDropdown] = useState(false);
-  const globalSearchTimeout = useRef(null);
+  // состояние для умного поиска, встроенного в фильтр
+  const [smartLoading, setSmartLoading] = useState(false);
+  const [smartError, setSmartError] = useState("");
+  const smartTimeoutRef = useRef(null);
 
   // ====== Загрузка категорий ======
   useEffect(() => {
@@ -67,6 +65,7 @@ function App() {
     loadCategories();
   }, []);
 
+  // при смене фильтров сбрасываем страницу
   useEffect(() => {
     setCurrentPage(1);
   }, [search, filterId, filterStatus, dateFrom, dateTo, categories]);
@@ -76,7 +75,7 @@ function App() {
     [categories, selectedCategoryId]
   );
 
-  // Фильтрация
+  // Фильтрация по локальным условиям
   const filteredCategories = useMemo(
     () =>
       categories.filter((cat) => {
@@ -250,51 +249,55 @@ function App() {
     setProductsModal(null);
   };
 
-  // ====== Глобальный умный поиск ======
+  // ====== Интегрированный умный поиск в поле фильтра ======
+  const handleSmartSearchChange = (e) => {
+    const q = e.target.value;
+    setSearch(q);
+    setSmartError("");
 
-  const handleGlobalSearchChange = (e) => {
-    const value = e.target.value;
-    setGlobalQuery(value);
-    setGlobalError("");
-
-    if (globalSearchTimeout.current) {
-      clearTimeout(globalSearchTimeout.current);
+    if (smartTimeoutRef.current) {
+      clearTimeout(smartTimeoutRef.current);
     }
 
-    if (!value.trim()) {
-      setGlobalResults([]);
-      setShowGlobalDropdown(false);
+    // пустая строка — только локальный фильтр, без умного поиска
+    if (!q.trim()) {
+      setSmartLoading(false);
       return;
     }
 
-    globalSearchTimeout.current = setTimeout(async () => {
+    smartTimeoutRef.current = setTimeout(async () => {
       try {
-        setGlobalLoading(true);
-        const params = new URLSearchParams({ q: value });
+        setSmartLoading(true);
+        const params = new URLSearchParams({ q });
         const res = await fetch(
           `${API_BASE}/api/search/categories?${params.toString()}`
         );
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
-        const data = await res.json();
-        setGlobalResults(data || []);
-        setShowGlobalDropdown((data || []).length > 0);
+        const data = await res.json(); // [{id,name,score,...}]
+
+        if (!Array.isArray(data) || data.length === 0) {
+          setSmartError("Ничего не найдено");
+          return;
+        }
+
+        const top = data[0];
+        setSelectedCategoryId(top.id);
+
+        // находим, на какой странице таблицы эта категория
+        const index = filteredCategories.findIndex((c) => c.id === top.id);
+        if (index !== -1) {
+          const page = Math.floor(index / PAGE_SIZE) + 1;
+          setCurrentPage(page);
+        }
       } catch (err) {
         console.error("Ошибка умного поиска:", err);
-        setGlobalError("Ошибка поиска");
-        setGlobalResults([]);
-        setShowGlobalDropdown(false);
+        setSmartError("Ошибка поиска");
       } finally {
-        setGlobalLoading(false);
+        setSmartLoading(false);
       }
     }, 300);
-  };
-
-  const handleGlobalResultClick = (id) => {
-    setSelectedCategoryId(id);
-    setShowGlobalDropdown(false);
-    setGlobalQuery("");
   };
 
   return (
@@ -322,46 +325,6 @@ function App() {
             Всего: {totalCount} • По фильтру: {filteredCount}
           </div>
         </div>
-
-        {/* Глобальный умный поиск */}
-        <div className="toolbar-right">
-          <div className="global-search">
-            <input
-              className="input global-search-input"
-              placeholder="Умный поиск по категориям..."
-              value={globalQuery}
-              onChange={handleGlobalSearchChange}
-              onFocus={() => {
-                if (globalResults.length > 0) setShowGlobalDropdown(true);
-              }}
-            />
-            {globalLoading && (
-              <div className="global-search-spinner">...</div>
-            )}
-
-            {showGlobalDropdown && globalResults.length > 0 && (
-              <div className="global-search-dropdown">
-                {globalResults.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    className="global-search-item"
-                    onClick={() => handleGlobalResultClick(r.id)}
-                  >
-                      <div className="global-search-item-main">{r.name}</div>
-                    <div className="global-search-item-sub">
-                      ID: {r.id} • {Math.round(r.score)}%
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {globalError && (
-              <div className="global-search-error">{globalError}</div>
-            )}
-          </div>
-        </div>
       </div>
 
       <main className="layout">
@@ -372,13 +335,19 @@ function App() {
 
             <div className="filters-row">
               <div className="filter-item wide">
-                <label>Поиск по названию или описанию</label>
+                <label>Поиск по категории (умный поиск)</label>
                 <input
                   className="input"
-                  placeholder="Введите текст."
+                  placeholder="Введите текст…"
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={handleSmartSearchChange}
                 />
+                {smartLoading && (
+                  <div className="smart-search-indicator">Поиск…</div>
+                )}
+                {smartError && (
+                  <div className="smart-search-error">{smartError}</div>
+                )}
               </div>
             </div>
 
