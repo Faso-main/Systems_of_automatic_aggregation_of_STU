@@ -40,6 +40,12 @@ function mapCategoryRow(row) {
       ? 0
       : Number(row.admin_rating);
 
+  const hasNewItems = row.has_new_items === true;
+  const newItemsCount =
+    row.new_items_count === null || row.new_items_count === undefined
+      ? 0
+      : Number(row.new_items_count);
+
   return {
     id: Number(row.id),
     name: row.name,
@@ -49,8 +55,11 @@ function mapCategoryRow(row) {
     rating, // number
     productIds: row.product_ids || [],
     features: row.category_features || [], // [{ key, values: [...] }, ...]
+    hasNewItems,
+    newItemsCount,
   };
 }
+
 
 // Базовый SELECT для категорий
 const CATEGORY_SELECT = `
@@ -62,6 +71,8 @@ const CATEGORY_SELECT = `
       c.created_at                              AS created_at,
       c.admin_rating                            AS admin_rating,
       c.admin_status                            AS admin_status,
+      c.has_new_items                           AS has_new_items,
+      c.new_items_count                         AS new_items_count,
 
       ARRAY_AGG(DISTINCT p.id ORDER BY p.id)    AS product_ids,
 
@@ -87,6 +98,7 @@ const CATEGORY_SELECT = `
   LEFT JOIN product p ON p.category_id = c.id
 `;
 
+
 // ====== Роуты ======
 
 // Health-check
@@ -105,7 +117,16 @@ app.get('/api/categories', async (req, res) => {
   try {
     const query = `
       ${CATEGORY_SELECT}
-      GROUP BY c.id, c.name, c.short_description, c.generated_at, c.created_at, c.admin_rating, c.admin_status
+      GROUP BY
+        c.id,
+        c.name,
+        c.short_description,
+        c.generated_at,
+        c.created_at,
+        c.admin_rating,
+        c.admin_status,
+        c.has_new_items,
+        c.new_items_count
       ORDER BY c.id;
     `;
     const result = await pool.query(query);
@@ -128,7 +149,16 @@ app.get('/api/categories/:id', async (req, res) => {
     const query = `
       ${CATEGORY_SELECT}
       WHERE c.id = $1
-      GROUP BY c.id, c.name, c.short_description, c.generated_at, c.created_at, c.admin_rating, c.admin_status
+      GROUP BY
+        c.id,
+        c.name,
+        c.short_description,
+        c.generated_at,
+        c.created_at,
+        c.admin_rating,
+        c.admin_status,
+        c.has_new_items,
+        c.new_items_count
       LIMIT 1;
     `;
     const result = await pool.query(query, [id]);
@@ -192,11 +222,38 @@ app.patch('/api/categories/:id', async (req, res) => {
 
 // Заглушка "перегенерация"
 app.post('/api/categories/:id/regenerate', async (req, res) => {
-  const id = req.params.id;
-  console.log(`Запрос на перегенерацию категории ${id}`);
-  // Тут потом можно подвесить вызов пайплайна / LLM
-  res.json({ ok: true, message: `Перегенерация категории ${id} ещё не реализована` });
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ error: 'Некорректный ID категории' });
+    }
+
+    // Считаем, что после регенерации все текущие товары учтены,
+    // поэтому сбрасываем флаг новых и счётчик
+    const result = await pool.query(
+      `
+      UPDATE product_category
+      SET
+        generated_at    = NOW(),
+        has_new_items   = FALSE,
+        new_items_count = 0
+      WHERE id = $1
+      RETURNING id
+      `,
+      [id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Категория не найдена' });
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Ошибка POST /api/categories/:id/regenerate:', err);
+    res.status(500).json({ error: 'Не удалось перегенерировать категорию' });
+  }
 });
+
 
 app.listen(PORT, () => {
   console.log(`API сервер запущен на http://localhost:${PORT}`);
