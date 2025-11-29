@@ -38,6 +38,7 @@ packaging==25.0
 pandas==2.3.3
 pillow==12.0.0
 plotly==6.5.0
+psycopg2-binary==2.9.11
 Pygments==2.19.2
 pynndescent==0.5.13
 python-dateutil==2.9.0.post0
@@ -50,6 +51,7 @@ safetensors==0.7.0
 scikit-learn==1.7.2
 scipy==1.15.3
 sentence-transformers==5.1.2
+setuptools==80.9.0
 six==1.17.0
 sympy==1.14.0
 threadpoolctl==3.6.0
