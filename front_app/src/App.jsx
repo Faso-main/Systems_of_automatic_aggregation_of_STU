@@ -8,17 +8,26 @@ const PAGE_SIZE = 15; // 15 строк на странице
 const formatDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString("ru-RU") : "—";
 
+// маленький помощник для красивого текста статуса
+const statusLabel = (status) => {
+  if (status === "approved") return "Одобрено";
+  if (status === "rejected") return "Не одобрено";
+  // всё, что не одобрено/не отклонено — считаем «не обработано»
+  return "Не обработано";
+};
+
 function App() {
   const [categories, setCategories] = useState([]);
+
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
 
   const [search, setSearch] = useState("");
   const [filterId, setFilterId] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all"); // all | pending | approved | rejected
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
-  const [currentPage, setCurrentPage] = useState(1); // пагинация
+  const [currentPage, setCurrentPage] = useState(1);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -64,6 +73,7 @@ function App() {
   const filteredCategories = useMemo(
     () =>
       categories.filter((cat) => {
+        // поиск по названию / описанию
         if (
           search &&
           !`${cat.name} ${cat.description || ""}`
@@ -72,15 +82,31 @@ function App() {
         ) {
           return false;
         }
-        if (filterId && !String(cat.id).includes(filterId.trim())) return false;
-        if (filterStatus !== "all" && cat.status !== filterStatus) return false;
 
-        if (dateFrom && cat.createdAt) {
-          if (new Date(cat.createdAt) < new Date(dateFrom)) return false;
+        // фильтр по ID
+        if (filterId && !String(cat.id).includes(filterId.trim())) return false;
+
+        // фильтр по статусу
+        if (filterStatus !== "all") {
+          if (filterStatus === "pending") {
+            // «не обработано» — всё, что НЕ approved и НЕ rejected
+            if (cat.status === "approved" || cat.status === "rejected") {
+              return false;
+            }
+          } else if (cat.status !== filterStatus) {
+            return false;
+          }
         }
-        if (dateTo && cat.createdAt) {
-          if (new Date(cat.createdAt) > new Date(dateTo)) return false;
+
+        // фильтр по датам (берём createdAt / generatedAt, что есть)
+        const dateField = cat.createdAt || cat.generatedAt;
+        if (dateFrom && dateField) {
+          if (new Date(dateField) < new Date(dateFrom)) return false;
         }
+        if (dateTo && dateField) {
+          if (new Date(dateField) > new Date(dateTo)) return false;
+        }
+
         return true;
       }),
     [categories, search, filterId, filterStatus, dateFrom, dateTo]
@@ -97,9 +123,11 @@ function App() {
 
   const paginatedCategories = useMemo(() => {
     const start = (currentPage - 1) * PAGE_SIZE;
-    const end = start + PAGE_SIZE;
-    return filteredCategories.slice(start, end);
+    return filteredCategories.slice(start, start + PAGE_SIZE);
   }, [filteredCategories, currentPage]);
+
+  const totalCount = categories.length;
+  const filteredCount = filteredCategories.length;
 
   const handleRegenerate = async (id) => {
     try {
@@ -120,15 +148,26 @@ function App() {
     );
 
     try {
-      await fetch(`${API_BASE}/api/categories/${id}`, {
-        method: "PATCH",
+      await fetch(`${API_BASE}/api/categories/${id}/rating`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rating }),
       });
     } catch (e) {
-      console.error("Ошибка обновления рейтинга", e);
-      // в проде можно сделать откат или показать тост
+      console.error("Ошибка сохранения рейтинга", e);
+      alert("Не удалось сохранить рейтинг категории");
     }
+  };
+
+  // клик по стрелочке в колонке «Статус» — быстрый цикл фильтра
+  const cycleStatusFilter = () => {
+    setFilterStatus((prev) => {
+      if (prev === "all") return "pending"; // показать только «не обработано»
+      if (prev === "pending") return "approved";
+      if (prev === "approved") return "rejected";
+      return "all";
+    });
+    setCurrentPage(1);
   };
 
   return (
@@ -152,24 +191,30 @@ function App() {
       <div className="toolbar">
         <div className="toolbar-left">
           <div className="toolbar-title">Категории товаров</div>
+          <div className="categories-count">
+            Всего: {totalCount} • По фильтру: {filteredCount}
+          </div>
         </div>
       </div>
 
       <main className="layout">
+        {/* ЛЕВАЯ ПАНЕЛЬ: таблица категорий */}
         <section className="panel-left">
           <div className="filters-block">
             <div className="filters-header">Фильтры</div>
+
             <div className="filters-row">
               <div className="filter-item wide">
                 <label>Поиск по названию или описанию</label>
                 <input
                   className="input"
-                  placeholder="Введите текст..."
+                  placeholder="Введите текст."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
             </div>
+
             <div className="filters-row">
               <div className="filter-item">
                 <label>ID категории</label>
@@ -180,6 +225,7 @@ function App() {
                   onChange={(e) => setFilterId(e.target.value)}
                 />
               </div>
+
               <div className="filter-item">
                 <label>Статус одобрения</label>
                 <select
@@ -188,10 +234,12 @@ function App() {
                   onChange={(e) => setFilterStatus(e.target.value)}
                 >
                   <option value="all">Все</option>
+                  <option value="pending">Не обработано</option>
                   <option value="approved">Одобрено</option>
                   <option value="rejected">Не одобрено</option>
                 </select>
               </div>
+
               <div className="filter-item">
                 <label>Дата с</label>
                 <input
@@ -201,6 +249,7 @@ function App() {
                   onChange={(e) => setDateFrom(e.target.value)}
                 />
               </div>
+
               <div className="filter-item">
                 <label>Дата по</label>
                 <input
@@ -220,20 +269,63 @@ function App() {
               </div>
             ) : error ? (
               <div className="table">
-                <div className="table-empty">{error}</div>
+                <div className="table-empty table-empty-error">{error}</div>
               </div>
             ) : (
               <>
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>ID категории</th>
-                      <th>Название категории</th>
-                      <th>Описание</th>
-                      <th>Дата генерации</th>
-                      <th>Статус</th>
-                      <th>Оценка</th>
-                      <th>Действия</th>
+                      <th>
+                        <div className="column-header">
+                          <span className="column-header-label">
+                            ID категории
+                          </span>
+                        </div>
+                      </th>
+                      <th>
+                        <div className="column-header">
+                          <span className="column-header-label">
+                            Название категории
+                          </span>
+                        </div>
+                      </th>
+                      <th>
+                        <div className="column-header">
+                          <span className="column-header-label">Описание</span>
+                        </div>
+                      </th>
+                      <th>
+                        <div className="column-header">
+                          <span className="column-header-label">
+                            Дата генерации
+                          </span>
+                        </div>
+                      </th>
+                      <th>
+                        <div className="column-header">
+                          <span className="column-header-label">Статус</span>
+                          <div className="column-header-controls">
+                            <button
+                              className="status-filter-btn"
+                              title="Цикл по статусам: все → не обработано → одобрено → не одобрено"
+                              onClick={cycleStatusFilter}
+                            >
+                              ▲▼
+                            </button>
+                          </div>
+                        </div>
+                      </th>
+                      <th>
+                        <div className="column-header">
+                          <span className="column-header-label">Оценка</span>
+                        </div>
+                      </th>
+                      <th>
+                        <div className="column-header">
+                          <span className="column-header-label">Действия</span>
+                        </div>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -244,36 +336,45 @@ function App() {
                         </td>
                       </tr>
                     )}
+
                     {paginatedCategories.map((cat) => (
                       <tr
                         key={cat.id}
                         className={
-                          cat.id === selectedCategoryId ? "row-selected" : ""
+                          cat.id === selectedCategoryId
+                            ? "table-row table-row--active"
+                            : "table-row"
                         }
                         onClick={() => setSelectedCategoryId(cat.id)}
                       >
                         <td>{cat.id}</td>
-                        <td className="cell-link">{cat.name}</td>
-                        <td className="cell-desc">
+                        <td>{cat.name}</td>
+                        <td className="table-cell-description">
                           {cat.description || "—"}
                         </td>
-                        <td>{formatDate(cat.createdAt)}</td>
+                        <td>{formatDate(cat.generatedAt || cat.createdAt)}</td>
                         <td>
-                          {cat.status === "approved" ? (
-                            <span className="badge badge-success">Да</span>
-                          ) : (
-                            <span className="badge badge-danger">Нет</span>
-                          )}
+                          <span
+                            className={`status-badge ${
+                              cat.status === "approved"
+                                ? "status-badge--approved"
+                                : cat.status === "rejected"
+                                ? "status-badge--rejected"
+                                : "status-badge--pending"
+                            }`}
+                          >
+                            {statusLabel(cat.status)}
+                          </span>
                         </td>
                         <td>
                           <StarRating
-                            value={cat.rating || 0}
-                            onChange={(r) => handleRatingChange(cat.id, r)}
+                            value={cat.rating ?? 0}
+                            onChange={(v) => handleRatingChange(cat.id, v)}
                           />
                         </td>
                         <td>
                           <button
-                            className="btn btn-sm"
+                            className="btn btn-ghost btn-small"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleRegenerate(cat.id);
@@ -287,73 +388,60 @@ function App() {
                   </tbody>
                 </table>
 
-                {/* ПАГИНАЦИЯ ПОД ТАБЛИЦЕЙ */}
-                {filteredCategories.length > 0 && (
-                  <div className="pagination">
-                    <div className="pagination-info">
-                      Найдено: {filteredCategories.length} категорий
-                    </div>
-                    <div className="pagination-controls">
-                      <button
-                        className="btn btn-sm"
-                        onClick={() => setCurrentPage(1)}
-                        disabled={currentPage === 1}
-                      >
-                        «
-                      </button>
-                      <button
-                        className="btn btn-sm"
-                        onClick={() =>
-                          setCurrentPage((p) => Math.max(1, p - 1))
-                        }
-                        disabled={currentPage === 1}
-                      >
-                        ‹
-                      </button>
-                      <span className="pagination-page-label">
-                        Страница {currentPage} из {totalPages}
-                      </span>
-                      <button
-                        className="btn btn-sm"
-                        onClick={() =>
-                          setCurrentPage((p) =>
-                            Math.min(totalPages, p + 1)
-                          )
-                        }
-                        disabled={currentPage === totalPages}
-                      >
-                        ›
-                      </button>
-                      <button
-                        className="btn btn-sm"
-                        onClick={() => setCurrentPage(totalPages)}
-                        disabled={currentPage === totalPages}
-                      >
-                        »
-                      </button>
-                    </div>
+                {/* пагинация */}
+                <div className="pagination">
+                  <div className="pagination-info">
+                    Страница {currentPage} из {totalPages}
                   </div>
-                )}
+                  <div className="pagination-buttons">
+                    <button
+                      className="pagination-btn"
+                      disabled={currentPage === 1}
+                      onClick={() => setCurrentPage((p) => p - 1)}
+                    >
+                      ◀
+                    </button>
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(
+                      (page) => (
+                        <button
+                          key={page}
+                          className={`pagination-btn ${
+                            page === currentPage
+                              ? "pagination-btn--active"
+                              : ""
+                          }`}
+                          onClick={() => setCurrentPage(page)}
+                        >
+                          {page}
+                        </button>
+                      )
+                    )}
+                    <button
+                      className="pagination-btn"
+                      disabled={currentPage === totalPages}
+                      onClick={() => setCurrentPage((p) => p + 1)}
+                    >
+                      ▶
+                    </button>
+                  </div>
+                </div>
               </>
             )}
           </div>
         </section>
 
+        {/* ПРАВАЯ ПАНЕЛЬ: карточка выбранной категории */}
         <section className="panel-right">
-          {!selectedCategory ? (
-            <div className="empty-card">
-              {loading
-                ? "Загрузка…"
-                : "Выберите категорию в таблице слева"}
-            </div>
-          ) : (
+          {selectedCategory ? (
             <CategoryCard
               category={selectedCategory}
-              onRegenerate={() => handleRegenerate(selectedCategory.id)}
-              onRatingChange={(r) =>
-                handleRatingChange(selectedCategory.id, r)
-              }
+              onRegenerate={handleRegenerate}
+              onRatingChange={handleRatingChange}
             />
+          ) : (
+            <div className="card-empty">
+              Выберите категорию слева, чтобы посмотреть детали
+            </div>
           )}
         </section>
       </main>
@@ -361,161 +449,123 @@ function App() {
   );
 }
 
-function StarRating({ value, onChange }) {
-  const rating = typeof value === "number" ? value : 0;
-
-  const handleClick = (v) => {
-    if (onChange) onChange(v);
-  };
-
+// ====== КОМПОНЕНТ ОЦЕНКИ ЗВЁЗДАМИ ======
+function StarRating({ value = 0, onChange }) {
+  const stars = [1, 2, 3, 4, 5];
   return (
     <div className="stars">
-      {[1, 2, 3, 4, 5].map((v) => (
-        <span
-          key={v}
-          className={
-            "star " +
-            (v <= rating ? "star-filled " : "") +
-            (onChange ? "star-clickable" : "")
-          }
-          onClick={() => handleClick(v)}
+      {stars.map((s) => (
+        <button
+          key={s}
+          type="button"
+          className={`star ${value >= s ? "star--active" : ""}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onChange?.(s);
+          }}
         >
           ★
-        </span>
+        </button>
       ))}
-      <span className="stars-value">{rating.toFixed(1)}</span>
     </div>
   );
 }
 
+// ====== КАРТОЧКА КАТЕГОРИИ ======
 function CategoryCard({ category, onRegenerate, onRatingChange }) {
-  const features = category.features || [];
+  const {
+    id,
+    name,
+    description,
+    createdAt,
+    generatedAt,
+    status,
+    rating,
+    features = [],
+    productIds = [],
+  } = category;
 
-  // Вытаскиваем цвета и размеры из признаков
-  const colorsFeature = features.find((f) => f.key === "Цвет");
-  const sizesFeature =
-    features.find((f) => f.key === "Размер") ||
-    features.find((f) => f.key === "Размер (RU)");
-
-  const colors = colorsFeature?.values || [];
-  const sizes = sizesFeature?.values || [];
-
-  const [selectedColor, setSelectedColor] = useState(colors[0] || "—");
-  const [selectedSize, setSelectedSize] = useState(sizes[0] || "—");
+  const dateToShow = generatedAt || createdAt;
 
   return (
-    <div className="card">
+    <div className="category-card">
       <div className="card-header">
-        <div>
-          <h2>{category.name}</h2>
-          <div className="card-subtitle">
-            ID категории: {category.id} · Сгенерировано:{" "}
-            {formatDate(category.createdAt)}
+        <div className="card-header-row">
+          <div className="card-title-block">
+            <div className="card-title">{name}</div>
+            <div className="card-id">ID категории: {id}</div>
+          </div>
+          <div className="card-meta">
+            <div className="card-date">
+              Сгенерировано: {formatDate(dateToShow)}
+            </div>
+            <div className="card-status">
+              <span
+                className={`status-badge ${
+                  status === "approved"
+                    ? "status-badge--approved"
+                    : status === "rejected"
+                    ? "status-badge--rejected"
+                    : "status-badge--pending"
+                }`}
+              >
+                {statusLabel(status)}
+              </span>
+            </div>
           </div>
         </div>
-        <div className="card-status-group">
-          <span className="card-status-label">Статус:</span>
-          {category.status === "approved" ? (
-            <span className="badge badge-success">
-              Одобрено администратором
-            </span>
-          ) : (
-            <span className="badge badge-danger">
-              Не одобрено администратором
-            </span>
-          )}
+
+        <div className="card-header-row card-header-row--bottom">
+          <div className="card-rating-row">
+            <span className="rating-label">Оценка категории:</span>
+            <StarRating
+              value={rating ?? 0}
+              onChange={(v) => onRatingChange?.(id, v)}
+            />
+          </div>
+          <div className="card-actions">
+            <button
+              className="btn btn-primary"
+              onClick={() => onRegenerate?.(id)}
+            >
+              Перегенерировать категорию
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="card-body">
+        <div className="card-section">
+          <div className="card-section-title">Краткое описание</div>
+          <p className="card-description">
+            {description ||
+              "Описание категории пока не задано. Вы можете перегенерировать его моделью или заполнить вручную через административную панель."}
+          </p>
+        </div>
 
-        <div className="card-info">
-          <div className="card-rating-row">
-            <span>Оценка агрегации:</span>
-            <StarRating value={category.rating || 0} onChange={onRatingChange} />
-          </div>
+        <div className="card-section">
+          <div className="card-section-title">Основные характеристики</div>
 
-          <div className="card-section">
-            <h3>Описание</h3>
-            <p>{category.description || "Описание не задано"}</p>
-          </div>
-
-          <div className="card-section">
-            <h3>Характеристики категории</h3>
-            {features.length === 0 ? (
-              <p>Нет выделенных характеристик для этой категории.</p>
-            ) : (
-              <ul style={{ margin: 0, paddingLeft: 16, fontSize: 13 }}>
-                {features.map((f) => (
-                  <li key={f.key}>
-                    <b>{f.key}:</b> {(f.values || []).join(", ")}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {(colors.length > 0 || sizes.length > 0) && (
-            <div className="card-section">
-              <h3>Примеры вариаций товаров</h3>
-
-              <div className="card-variants">
-                {colors.length > 0 && (
-                  <div className="variant-block">
-                    <div className="variant-label">Цвет</div>
-                    <div className="variant-options">
-                      {colors.map((color) => (
-                        <button
-                          key={color}
-                          className={
-                            "chip " +
-                            (color === selectedColor ? "chip-selected" : "")
-                          }
-                          onClick={() => setSelectedColor(color)}
-                        >
-                          {color}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {sizes.length > 0 && (
-                  <div className="variant-block">
-                    <div className="variant-label">Размер</div>
-                    <div className="variant-options">
-                      {sizes.map((size) => (
-                        <button
-                          key={size}
-                          className={
-                            "chip " +
-                            (size === selectedSize ? "chip-selected" : "")
-                          }
-                          onClick={() => setSelectedSize(size)}
-                        >
-                          {size}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="variant-summary">
-                  Текущая вариация: <b>{selectedColor}</b>
-                  {sizes.length > 0 && (
-                    <>
-                      , размер <b>{selectedSize}</b>
-                    </>
-                  )}
+          {features.length === 0 ? (
+            <p className="card-section-empty">
+              Для этой категории пока не выделены уникальные характеристики.
+            </p>
+          ) : (
+            <div className="features-grid">
+              {features.map((f, idx) => (
+                <div key={`${f.key}-${idx}`} className="feature-pill">
+                  <span className="feature-key">{f.key}</span>
+                  <span className="feature-value">{f.value}</span>
                 </div>
-              </div>
+              ))}
             </div>
           )}
+        </div>
 
-          <div className="card-actions">
-            <button className="btn" onClick={onRegenerate}>
-              Перегенерировать
-            </button>
+        <div className="card-section">
+          <div className="card-section-title">Товары в категории</div>
+          <div className="products-count">
+            Количество СТЕ в категории: {productIds?.length ?? 0}
           </div>
         </div>
       </div>
