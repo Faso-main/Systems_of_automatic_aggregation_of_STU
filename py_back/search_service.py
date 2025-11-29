@@ -292,12 +292,9 @@ def reload_index():
     return {"status": "reloaded", "categories_indexed": len(cat_index)}
 
 
-@app.get(
-    "/search/categories",
-    response_model=List[SearchResult],
-)
+@app.get("/search/categories", response_model=List[SearchResult])
 def search_categories(
-    q: str = Query(..., min_length=1, description="Поисковый запрос"),
+    q: str = Query(..., min_length=1),
     top_k: int = Query(DEFAULT_TOP_K, ge=1, le=50),
     min_score: float = Query(DEFAULT_MIN_SCORE, ge=0.0, le=100.0),
 ):
@@ -307,3 +304,15 @@ def search_categories(
 
     results = smart_search(cat_index, q, top_k=top_k, min_score=min_score)
     return [SearchResult(**r) for r in results]
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "search_service:app",
+        host="127.0.0.1",
+        port=8001,
+        reload=False,
+        workers=1,
+    )
