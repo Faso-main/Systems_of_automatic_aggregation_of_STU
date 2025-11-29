@@ -8,7 +8,7 @@ const PORT = 5000;
 
 app.use(
   cors({
-    origin: ['https://faso312.ru'],
+    origin: ['https://faso312.ru','http://127.0.0.1:5000',],
     credentials: false,
   })
 );
