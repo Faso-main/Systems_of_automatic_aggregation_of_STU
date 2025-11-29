@@ -428,9 +428,6 @@ function CategoryCard({ category, onRegenerate, onRatingChange }) {
       </div>
 
       <div className="card-body">
-        <div className="image-placeholder">
-          Здесь может быть превью товаров категории
-        </div>
 
         <div className="card-info">
           <div className="card-rating-row">
