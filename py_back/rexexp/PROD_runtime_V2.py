@@ -21,7 +21,7 @@ import pandas as pd
 from tqdm import tqdm
 
 # Импорт твоей модели рантайма
-from train_llm_itr3 import RuntimeCharacteristicsExtractor
+from runtime_llm_itr3 import RuntimeCharacteristicsExtractor
 
 
 # ============================= КОНФИГ =============================
