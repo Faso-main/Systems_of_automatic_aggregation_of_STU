@@ -2,21 +2,17 @@
 # -*- coding: utf-8 -*-
 
 """
-test_llama_attr_gen.py
+generate_llama_attrs.py
 
-Локальный тест генерации "3–5 обязательных характеристик" 
-под каждую категорию из CSV:
+1) Читает CSV с товарами:  py_back/rexexp/data/result_itr4.csv
+2) Берёт уникальные названия категорий
+3) Для каждой категории вызывает локальную LLaMA
+4) Полученные 3–5 характеристик сохраняет в:
 
-    CSV_PATH = "py_back/rexexp/data/result_itr4.csv"
-
-Работает с ЛЮБОЙ локальной LLaMA/Mistral/Qwen моделью,
-развёрнутой через transformers.
+       py_back/rexexp/data/category_attrs_llama.csv
 
 Зависимости:
     pip install transformers accelerate torch pandas
-
-Запуск:
-    python test_llama_attr_gen.py
 """
 
 import re
@@ -24,33 +20,35 @@ import pandas as pd
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 
 # ------------------------------
-# ПУТЬ К ТВОЕМУ ФАЙЛУ CSV
+# Пути
 # ------------------------------
+
 CSV_PATH = "py_back/rexexp/data/result_itr4.csv"
+OUT_PATH = "py_back/rexexp/data/category_attrs_llama.csv"
 
 # ------------------------------
-# ЛОКАЛЬНАЯ ГЕНЕРАТИВНАЯ МОДЕЛЬ
+# Локальная модель
 # ------------------------------
-# Примеры:
-#   "Qwen/Qwen2.5-7B-Instruct"
-#   "meta-llama/Llama-3-8b-instruct"
-#   "mistralai/Mistral-7B-Instruct-v0.2"
-#
-# ВСТАВЬ СВОЮ!
+# !!! ВСТАВЬ СВОЮ !!!
+# Пример:
+# MODEL_NAME = "./qwen_local"
+# MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
+# MODEL_NAME = "meta-llama/Llama-3-8b-instruct"
+
 MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
 
 
 # ------------------------------
-# ТЕКСТ-ИНСТРУКЦИЯ (System prompt)
+# SYSTEM PROMPT
 # ------------------------------
+
 SYSTEM_TEXT = (
-    "Ты — эксперт по классификации товаров в e-commerce. "
-    "Тебе дают название категории на русском языке. "
-    "Твоя задача — вернуть 3 ключевые характеристик, "
-    "которые по смыслу обязательно должны присутствовать "
-    "в описании товара этой категории. "
-    "Пиши только названия характеристик, по одному на строку, "
-    "без нумерации, без комментариев."
+    "Ты — эксперт по классификации товаров для e-commerce. "
+    "Тебе дают название категории. "
+    "Верни 3–5 ключевых характеристик, которые обязательно должны быть "
+    "у товара в этой категории. "
+    "Пиши только названия характеристик, без пояснений, без нумерации, "
+    "по одному на строку."
 )
 
 
@@ -64,30 +62,25 @@ def build_prompt(category_name: str) -> str:
 
 def clean_response(text: str) -> list[str]:
     """
-    Чистим вывод генеративной модели.
-    Оставляем только строки вида «Размер», «Цвет», «Индекс нагрузки» и т.п.
+    Чистит вывод от мусора: убирает нумерацию, тире, пустые строки.
+    возвращает список строк.
     """
     lines = [l.strip() for l in text.splitlines() if l.strip()]
     attrs = []
 
     for line in lines:
-        # убираем "1. ", "- ", "* "
+        # убираем форматирование типа "1.", "-", "*", "—"
         line = re.sub(r"^[\-\*\d\.\)\s]+", "", line).strip()
-
-        # отсекаем мусор
-        if len(line) < 2:
+        # пропускаем слишком длинный или короткий мусор
+        if len(line) < 2 or len(line) > 80:
             continue
-        if len(line) > 80:
-            continue
-
         attrs.append(line)
 
-    # max 5
-    return attrs[:5]
+    return attrs[:5]  # максимум 5
 
 
 def main():
-    print(f"Загружаю модель: {MODEL_NAME} ...")
+    print(f"Загружаю модель {MODEL_NAME} ...")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
@@ -108,14 +101,16 @@ def main():
     df = pd.read_csv(CSV_PATH)
 
     if "название_категории" not in df.columns:
-        raise Exception("В CSV нет столбца 'название_категории'")
+        raise Exception("В CSV нет колонки 'название_категории'")
 
-    categories = df["название_категории"].dropna().unique().tolist()
-    print(f"Уникальных категорий: {len(categories)}\n")
+    categories = sorted(df["название_категории"].dropna().unique().tolist())
+    print(f"Найдено категорий: {len(categories)}")
 
-    print("Показываю первые 15 категорий:\n")
+    records = []
 
-    for cat in categories[:15]:
+    for i, cat in enumerate(categories, start=1):
+        print(f"[{i}/{len(categories)}] Обрабатываю: {cat}")
+
         prompt = build_prompt(cat)
 
         out = pipe(
@@ -127,10 +122,18 @@ def main():
 
         attrs = clean_response(out)
 
-        print(f"Категория: {cat}")
-        for a in attrs:
-            print(f"  - {a}")
-        print("-" * 60)
+        records.append({
+            "category": cat,
+            "attributes": "; ".join(attrs)
+        })
+
+    # сохраняем результат
+    out_df = pd.DataFrame(records)
+    out_df.to_csv(OUT_PATH, index=False, encoding="utf-8-sig")
+
+    print(f"\nГотово! Сохранено в: {OUT_PATH}")
+    print("\nПервые 10 строк результата:\n")
+    print(out_df.head(10))
 
 
 if __name__ == "__main__":
