@@ -125,7 +125,7 @@ body {
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   gap: 16px;
   padding: 16px 24px 24px;
-  justify-items: stretch
+  justify-items: stretch;
 }
 
 .panel-left,
@@ -457,7 +457,7 @@ body {
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
-  flex-wrap: wrap; /* ВАЖНО: разрешаем перенос внутри строки */
+  flex-wrap: wrap; /* разрешаем перенос внутри строки */
 }
 
 .card-title-block {
@@ -494,6 +494,7 @@ body {
   gap: 8px;
   flex-wrap: wrap;
 }
+
 .rating-label {
   font-size: 12px;
   color: #4b5563;
@@ -667,5 +668,77 @@ body {
   font-weight: 600;
   color: #111827;
   margin-bottom: 4px;
-  word-break: break-word;   /* переносим длинные названия */
+  word-break: break-word; /* переносим длинные названия */
+}
+
+/* ====== МОДАЛКА СО СТЕ ====== */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.modal {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 20px 24px;
+  max-width: 640px;
+  width: 100%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.25);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.modal-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.modal-body {
+  overflow-y: auto;
+  padding-top: 4px;
+}
+
+.products-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.products-list-item {
+  padding: 8px 0;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 14px;
+}
+
+.products-list-item:last-child {
+  border-bottom: none;
+}
+
+.products-list-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
+/* строка с количеством + кнопкой */
+
+.products-count-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }

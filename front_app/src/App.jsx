@@ -29,6 +29,9 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // состояние модалки со списком СТЕ
+  const [productsModal, setProductsModal] = useState(null);
+
   // ====== Загрузка категорий с бэка ======
   useEffect(() => {
     async function loadCategories() {
@@ -179,6 +182,20 @@ function App() {
       return "all";
     });
     setCurrentPage(1);
+  };
+
+  // открыть модалку со СТЕ для выбранной категории
+  const handleShowProductsModal = (category) => {
+    if (!category) return;
+    setProductsModal({
+      id: category.id,
+      name: category.name,
+      productIds: category.productIds || [],
+    });
+  };
+
+  const handleCloseProductsModal = () => {
+    setProductsModal(null);
   };
 
   return (
@@ -450,6 +467,7 @@ function App() {
               onRegenerate={handleRegenerate}
               onRatingChange={handleRatingChange}
               onUpdateCategory={handleCategoryUpdate}
+              onShowProducts={() => handleShowProductsModal(selectedCategory)}
             />
           ) : (
             <div className="card-empty">
@@ -458,6 +476,14 @@ function App() {
           )}
         </section>
       </main>
+
+      {/* Модалка со всеми СТЕ категории */}
+      {productsModal && (
+        <ProductsModal
+          data={productsModal}
+          onClose={handleCloseProductsModal}
+        />
+      )}
     </div>
   );
 }
@@ -485,7 +511,13 @@ function StarRating({ value = 0, onChange }) {
 }
 
 // ====== КАРТОЧКА КАТЕГОРИИ (справа) ======
-function CategoryCard({ category, onRegenerate, onRatingChange, onUpdateCategory }) {
+function CategoryCard({
+  category,
+  onRegenerate,
+  onRatingChange,
+  onUpdateCategory,
+  onShowProducts,
+}) {
   const {
     id,
     name,
@@ -529,11 +561,9 @@ function CategoryCard({ category, onRegenerate, onRatingChange, onUpdateCategory
       <div className="card-header">
         <div className="card-header-row">
           <div className="card-title-block">
-          <label className="card-field-label">Название категории</label>
-          <div className="card-title-text">
-            {name}
-          </div>
-          <div className="card-id">ID категории: {id}</div>
+            <label className="card-field-label">Название категории</label>
+            <div className="card-title-text">{name}</div>
+            <div className="card-id">ID категории: {id}</div>
           </div>
           <div className="card-meta">
             <div className="card-date">
@@ -609,21 +639,78 @@ function CategoryCard({ category, onRegenerate, onRatingChange, onUpdateCategory
             </p>
           ) : (
             <div className="features-grid">
-              {features.map((f, idx) => (
-                <div key={`${f.key}-${idx}`} className="feature-pill">
-                  <span className="feature-key">{f.key}</span>
-                  <span className="feature-value">{f.value}</span>
-                </div>
-              ))}
+              {features.map((f, idx) => {
+                const values = Array.isArray(f.values)
+                  ? f.values.join(", ")
+                  : f.value ?? "";
+                return (
+                  <div key={`${f.key}-${idx}`} className="feature-pill">
+                    <span className="feature-key">{f.key}</span>
+                    <span className="feature-value">{values}</span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
 
         <div className="card-section">
           <div className="card-section-title">Товары в категории</div>
-          <div className="products-count">
-            Количество СТЕ в категории: {productIds?.length ?? 0}
+          <div className="products-count-row">
+            <span className="products-count">
+              Количество СТЕ в категории: {productIds?.length ?? 0}
+            </span>
+            <button
+              type="button"
+              className="btn btn-ghost btn-small"
+              onClick={() => onShowProducts?.()}
+              disabled={!productIds || productIds.length === 0}
+            >
+              Показать все СТЕ
+            </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ====== МОДАЛКА СО СПИСКОМ СТЕ ======
+function ProductsModal({ data, onClose }) {
+  if (!data) return null;
+  const { name, productIds = [] } = data;
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        className="modal"
+        onClick={(e) => {
+          e.stopPropagation();
+        }}
+      >
+        <div className="modal-header">
+          <h2 className="modal-title">СТЕ в категории «{name}»</h2>
+          <button
+            type="button"
+            className="btn btn-ghost btn-small"
+            onClick={onClose}
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="modal-body">
+          {productIds.length === 0 ? (
+            <p>В этой категории пока нет СТЕ.</p>
+          ) : (
+            <ul className="products-list">
+              {productIds.map((pid) => (
+                <li key={pid} className="products-list-item">
+                  <span className="products-list-id">ID: {pid}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </div>
