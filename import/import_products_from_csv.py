@@ -3,7 +3,7 @@ import csv
 from pathlib import Path
 
 import psycopg2
-from psycopg2.extras import execute_batch
+from psycopg2.extras import execute_batch, Json
 
 # Путь к CSV с результатами импорта
 CSV_PATH = Path("py_back/rexexp/data/result_itr4.csv")
@@ -60,7 +60,7 @@ def main():
     cur = conn.cursor()
 
     # SQL с UPSERT по id
-    # Предполагается, что product.raw_specs имеет тип TEXT (или совместимый).
+    # product.raw_specs имеет тип JSON/JSONB → кладём туда JSON-строку.
     sql = """
     INSERT INTO product (
         id,
@@ -126,6 +126,9 @@ def main():
                 skipped_no_name += 1
                 continue
 
+            # Собираем все spec* в одну строку
+            specs_text = build_specs_as_text(row)
+
             product = {
                 "id": product_id,
                 "category_id": category_id,
@@ -133,8 +136,8 @@ def main():
                 "producer": (row.get("производитель") or "").strip() or None,
                 "country": (row.get("страна_происхождения") or "").strip() or None,
                 "image_url": (row.get("ссылка_на_картинку") or "").strip() or None,
-                # Все spec* в одну строку через "; "
-                "raw_specs": build_specs_as_text(row),
+                # ВАЖНО: оборачиваем в Json(...) → в колонку JSON попадёт валидная JSON-строка
+                "raw_specs": Json(specs_text) if specs_text is not None else None,
             }
 
             batch.append(product)
