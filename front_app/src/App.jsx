@@ -18,7 +18,7 @@ function App() {
   const [categories, setCategories] = useState([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
 
-  // локальный текстовый фильтр + умный поиск используют ОДНО поле
+  // поле поиска в фильтре (текст, который вводит пользователь)
   const [search, setSearch] = useState("");
   const [filterId, setFilterId] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -36,6 +36,7 @@ function App() {
   // состояние для умного поиска, встроенного в фильтр
   const [smartLoading, setSmartLoading] = useState(false);
   const [smartError, setSmartError] = useState("");
+  const [smartResultIds, setSmartResultIds] = useState([]); // ID категорий, найденных умным поиском
   const smartTimeoutRef = useRef(null);
 
   // ====== Загрузка категорий ======
@@ -68,18 +69,25 @@ function App() {
   // при смене фильтров сбрасываем страницу
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, filterId, filterStatus, dateFrom, dateTo, categories]);
+  }, [search, filterId, filterStatus, dateFrom, dateTo, categories, smartResultIds]);
 
   const selectedCategory = useMemo(
     () => categories.find((c) => c.id === selectedCategoryId) ?? null,
     [categories, selectedCategoryId]
   );
 
-  // Фильтрация по локальным условиям
+  // Фильтрация по локальным условиям + учёт результатов умного поиска
   const filteredCategories = useMemo(
     () =>
       categories.filter((cat) => {
+        // 1) если умный поиск вернул какие-то ID — показываем только их
+        if (smartResultIds.length > 0 && !smartResultIds.includes(cat.id)) {
+          return false;
+        }
+
+        // 2) обычный текстовый фильтр по name/description (работает, когда smartResultIds пустой)
         if (
+          smartResultIds.length === 0 &&
           search &&
           !`${cat.name} ${cat.description || ""}`
             .toLowerCase()
@@ -110,7 +118,7 @@ function App() {
 
         return true;
       }),
-    [categories, search, filterId, filterStatus, dateFrom, dateTo]
+    [categories, search, filterId, filterStatus, dateFrom, dateTo, smartResultIds]
   );
 
   const totalPages = useMemo(
@@ -259,9 +267,10 @@ function App() {
       clearTimeout(smartTimeoutRef.current);
     }
 
-    // пустая строка — только локальный фильтр, без умного поиска
+    // если строка пустая — сбрасываем результаты умного поиска
     if (!q.trim()) {
       setSmartLoading(false);
+      setSmartResultIds([]);
       return;
     }
 
@@ -279,21 +288,24 @@ function App() {
 
         if (!Array.isArray(data) || data.length === 0) {
           setSmartError("Ничего не найдено");
+          setSmartResultIds([]);
           return;
         }
 
+        // сохраняем все найденные ID категорий для таблицы
+        const ids = data.map((r) => r.id);
+        setSmartResultIds(ids);
+
+        // выбираем топ-результат справа
         const top = data[0];
         setSelectedCategoryId(top.id);
 
-        // находим, на какой странице таблицы эта категория
-        const index = filteredCategories.findIndex((c) => c.id === top.id);
-        if (index !== -1) {
-          const page = Math.floor(index / PAGE_SIZE) + 1;
-          setCurrentPage(page);
-        }
+        // таблицу логично показывать с первой страницы
+        setCurrentPage(1);
       } catch (err) {
         console.error("Ошибка умного поиска:", err);
         setSmartError("Ошибка поиска");
+        setSmartResultIds([]);
       } finally {
         setSmartLoading(false);
       }
