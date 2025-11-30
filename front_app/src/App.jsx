@@ -1298,9 +1298,9 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
       }
       await onRegenerateSelected?.(categoryId); // без списка → все товары
     } else {
+      onClose();
       await onRegenerateSelected?.(categoryId, ids);
     }
-    onClose();
   };
 
   // Управление чекбоксами в попапе фильтра
