@@ -937,3 +937,25 @@ body {
   color: #b91c1c;
   margin-top: 4px;
 }
+
+.regen-btn[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.regen-btn[disabled]::after {
+  content: "";
+  display: inline-block;
+  margin-left: 8px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #fff;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}

@@ -16,6 +16,7 @@ const statusLabel = (status) => {
 
 function App() {
   const [categories, setCategories] = useState([]);
+  const [regeneratingIds, setRegeneratingIds] = useState(new Set());
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
 
   // поле поиска в фильтре (текст, который вводит пользователь)
@@ -138,6 +139,13 @@ function App() {
   const filteredCount = filteredCategories.length;
 
   const handleRegenerate = async (id) => {
+    // помечаем категорию как "в процессе перегенерации"
+    setRegeneratingIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+
     try {
       const resp = await fetch(`${API_BASE}/api/categories/${id}/regenerate`, {
         method: "POST",
@@ -148,18 +156,26 @@ function App() {
 
       alert(`Категория ID ${id} отправлена на перегенерацию`);
 
-      // при желании можно тут же подтянуть свежую категорию и обновить state:
+      // подтягиваем свежую категорию и обновляем state
       const catResp = await fetch(`${API_BASE}/api/categories/${id}`);
-      const { category } = await catResp.json();
-      setCategories((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, ...category } : c))
-      );
+      if (catResp.ok) {
+        const { category } = await catResp.json();
+        setCategories((prev) =>
+          prev.map((c) => (c.id === id ? { ...c, ...category } : c))
+        );
+      }
     } catch (e) {
       console.error("Ошибка перегенерации", e);
       alert("Не удалось отправить запрос на перегенерацию");
+    } finally {
+      // снимаем флаг "перегенерации" с категории
+      setRegeneratingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   };
-
 
   const handleRatingChange = async (id, rating) => {
     setCategories((prev) =>
@@ -568,6 +584,7 @@ function App() {
               onRatingChange={handleRatingChange}
               onUpdateCategory={handleCategoryUpdate}
               onShowProducts={() => handleShowProductsModal(selectedCategory)}
+              isRegenerating={regeneratingIds.has(selectedCategory.id)}
             />
           ) : (
             <div className="card-empty">
@@ -611,6 +628,7 @@ function CategoryCard({
   onRatingChange,
   onUpdateCategory,
   onShowProducts,
+  isRegenerating,
 }) {
   const {
     id,
@@ -710,8 +728,9 @@ function CategoryCard({
               className="btn btn-primary"
               onClick={() => onRegenerate?.(id)}
               type="button"
+              disabled={isRegenerating}
             >
-              Перегенерировать категорию
+              {isRegenerating ? "Перегенерация…" : "Перегенерировать категорию"}
             </button>
           </div>
         </div>
