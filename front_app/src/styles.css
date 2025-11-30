@@ -1101,3 +1101,98 @@ body {
   color: #6b7280;
   white-space: nowrap;
 }
+
+/* ====== ФИЛЬТРЫ-ЧЕКБОКСЫ В ШАПКЕ ТАБЛИЦЫ ====== */
+
+.col-header-with-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+}
+
+.col-filter-trigger {
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  opacity: 0.7;
+}
+
+.col-filter-trigger:hover {
+  border-color: #e5e7eb;
+  opacity: 1;
+}
+
+.col-filter-trigger--active {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.05);
+  opacity: 1;
+}
+
+/* попап с чекбоксами */
+
+.col-filter-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  z-index: 20;
+  min-width: 220px;
+  max-height: 260px;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.col-filter-popover-header {
+  font-size: 11px;
+  font-weight: 500;
+  margin-bottom: 4px;
+  color: #111827;
+}
+
+.col-filter-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.col-filter-link {
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 11px;
+  color: #3b82f6;
+  cursor: pointer;
+}
+
+.col-filter-link:hover {
+  text-decoration: underline;
+}
+
+.col-filter-options {
+  max-height: 190px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.col-filter-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.col-filter-option input {
+  cursor: pointer;
+}

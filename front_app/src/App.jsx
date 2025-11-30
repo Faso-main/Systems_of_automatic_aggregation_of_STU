@@ -849,7 +849,6 @@ function CategoryCard({
 }
 
 function ProductsModal({ data, onClose, onRegenerateSelected }) {
-  // всегда вызываем хуки, даже если data = null
   const {
     id: categoryId,
     name,
@@ -861,43 +860,80 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
 
   const [selectedIds, setSelectedIds] = useState(new Set(productIds));
 
-  // глобальный поиск + фильтры по колонкам
+  // Глобальный поиск
   const [searchText, setSearchText] = useState("");
-  const [idFilter, setIdFilter] = useState("");
-  const [nameFilter, setNameFilter] = useState("");
-  const [producerFilter, setProducerFilter] = useState("");
-  const [countryFilter, setCountryFilter] = useState("");
-  const [specsFilter, setSpecsFilter] = useState("");
+
+  // Фильтры-«чекбоксы» по производителю и стране
+  const [producerFilterOpen, setProducerFilterOpen] = useState(false);
+  const [countryFilterOpen, setCountryFilterOpen] = useState(false);
+  const [producerFilterValues, setProducerFilterValues] = useState(
+    () => new Set()
+  );
+  const [countryFilterValues, setCountryFilterValues] = useState(
+    () => new Set()
+  );
+
+  const EMPTY_KEY = "__EMPTY__";
+
+  const normalizeOptionKey = (value) => {
+    const v = (value || "").toString().trim();
+    return v === "" ? EMPTY_KEY : v;
+  };
+
+  const getOptionLabel = (key) => {
+    if (key === EMPTY_KEY) return "пусто";
+    return key;
+  };
 
   useEffect(() => {
-    // при смене категории или списка товаров — пересобираем выбор
+    // При смене категории — сбрасываем выбор и фильтры
     setSelectedIds(new Set(productIds));
-    // обнуляем фильтры при открытии другой категории
     setSearchText("");
-    setIdFilter("");
-    setNameFilter("");
-    setProducerFilter("");
-    setCountryFilter("");
-    setSpecsFilter("");
+    setProducerFilterOpen(false);
+    setCountryFilterOpen(false);
+    setProducerFilterValues(new Set());
+    setCountryFilterValues(new Set());
   }, [categoryId, productIds]);
 
-  // применяем фильтры (как Excel — по каждому столбцу)
+  // Уникальные значения для фильтров
+  const producerOptions = useMemo(() => {
+    const set = new Set();
+    (products || []).forEach((p) => {
+      set.add(normalizeOptionKey(p.producer));
+    });
+    return Array.from(set).sort((a, b) =>
+      getOptionLabel(a).localeCompare(getOptionLabel(b), "ru", {
+        sensitivity: "base",
+      })
+    );
+  }, [products]);
+
+  const countryOptions = useMemo(() => {
+    const set = new Set();
+    (products || []).forEach((p) => {
+      set.add(normalizeOptionKey(p.country));
+    });
+    return Array.from(set).sort((a, b) =>
+      getOptionLabel(a).localeCompare(getOptionLabel(b), "ru", {
+        sensitivity: "base",
+      })
+    );
+  }, [products]);
+
+  // Применяем фильтры
   const filteredProducts = useMemo(() => {
     let list = products || [];
     if (!list.length) return [];
 
     const q = searchText.trim().toLowerCase();
-    const idQ = idFilter.trim();
-    const nameQ = nameFilter.trim().toLowerCase();
-    const prodQ = producerFilter.trim().toLowerCase();
-    const countryQ = countryFilter.trim().toLowerCase();
-    const specsQ = specsFilter.trim().toLowerCase();
+    const producerSet = producerFilterValues;
+    const countrySet = countryFilterValues;
 
     return list.filter((p) => {
       const specsText =
         typeof p.raw_specs === "string" ? p.raw_specs.toLowerCase() : "";
 
-      // глобальный поиск по всем основным полям
+      // Глобальный поиск по ID, имени, производителю, стране, характеристикам
       if (q) {
         const haystack = [
           String(p.id || ""),
@@ -912,56 +948,21 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
         if (!haystack.includes(q)) return false;
       }
 
-      // фильтр по ID
-      if (idQ && !String(p.id || "").includes(idQ)) return false;
-
-      // фильтр по названию
-      if (
-        nameQ &&
-        !(p.name || "")
-          .toString()
-          .toLowerCase()
-          .includes(nameQ)
-      ) {
-        return false;
+      // Фильтр по производителю (чекбоксы)
+      if (producerSet.size > 0) {
+        const key = normalizeOptionKey(p.producer);
+        if (!producerSet.has(key)) return false;
       }
 
-      // фильтр по производителю
-      if (
-        prodQ &&
-        !(p.producer || "")
-          .toString()
-          .toLowerCase()
-          .includes(prodQ)
-      ) {
-        return false;
+      // Фильтр по стране (чекбоксы)
+      if (countrySet.size > 0) {
+        const key = normalizeOptionKey(p.country);
+        if (!countrySet.has(key)) return false;
       }
-
-      // фильтр по стране
-      if (
-        countryQ &&
-        !(p.country || "")
-          .toString()
-          .toLowerCase()
-          .includes(countryQ)
-      ) {
-        return false;
-      }
-
-      // фильтр по характеристикам
-      if (specsQ && !specsText.includes(specsQ)) return false;
 
       return true;
     });
-  }, [
-    products,
-    searchText,
-    idFilter,
-    nameFilter,
-    producerFilter,
-    countryFilter,
-    specsFilter,
-  ]);
+  }, [products, searchText, producerFilterValues, countryFilterValues]);
 
   const toggleOne = (pid, checked) => {
     setSelectedIds((prev) => {
@@ -972,7 +973,7 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
     });
   };
 
-  // "выделить всё" — только по видимым (отфильтрованным) строкам
+  // «Выделить всё» только по видимым строкам
   const allVisibleChecked =
     filteredProducts.length > 0 &&
     filteredProducts.every((p) => selectedIds.has(p.id));
@@ -981,10 +982,8 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (checked) {
-        // добавить все видимые
         filteredProducts.forEach((p) => next.add(p.id));
       } else {
-        // убрать все видимые
         filteredProducts.forEach((p) => next.delete(p.id));
       }
       return next;
@@ -1008,7 +1007,31 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
     onClose();
   };
 
-  // уже после хуков можно спокойно выйти, если data нет
+  // Управление чекбоксами в попапе фильтра
+  const toggleFilterValue = (kind, key, checked) => {
+    const updater =
+      kind === "producer" ? setProducerFilterValues : setCountryFilterValues;
+
+    updater((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
+  const selectAllFilterValues = (kind, options) => {
+    const updater =
+      kind === "producer" ? setProducerFilterValues : setCountryFilterValues;
+    updater(new Set(options));
+  };
+
+  const clearFilterValues = (kind) => {
+    const updater =
+      kind === "producer" ? setProducerFilterValues : setCountryFilterValues;
+    updater(new Set());
+  };
+
   if (!data) return null;
 
   return (
@@ -1075,53 +1098,152 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
                       </th>
                       <th>ID</th>
                       <th>Наименование</th>
-                      <th>Производитель</th>
-                      <th>Страна</th>
+                      <th>
+                        <div className="col-header-with-filter">
+                          <span>Производитель</span>
+                          <button
+                            type="button"
+                            className={
+                              producerFilterValues.size > 0
+                                ? "col-filter-trigger col-filter-trigger--active"
+                                : "col-filter-trigger"
+                            }
+                            onClick={() =>
+                              setProducerFilterOpen((v) => !v)
+                            }
+                          >
+                            ▾
+                          </button>
+                          {producerFilterOpen && (
+                            <div className="col-filter-popover">
+                              <div className="col-filter-popover-header">
+                                <span>Фильтр по производителю</span>
+                              </div>
+                              <div className="col-filter-actions">
+                                <button
+                                  type="button"
+                                  className="col-filter-link"
+                                  onClick={() =>
+                                    selectAllFilterValues(
+                                      "producer",
+                                      producerOptions
+                                    )
+                                  }
+                                >
+                                  Выбрать все
+                                </button>
+                                <button
+                                  type="button"
+                                  className="col-filter-link"
+                                  onClick={() =>
+                                    clearFilterValues("producer")
+                                  }
+                                >
+                                  Сбросить
+                                </button>
+                              </div>
+                              <div className="col-filter-options">
+                                {producerOptions.map((key) => {
+                                  const label = getOptionLabel(key);
+                                  const checked =
+                                    producerFilterValues.has(key);
+                                  return (
+                                    <label
+                                      key={key}
+                                      className="col-filter-option"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={(e) =>
+                                          toggleFilterValue(
+                                            "producer",
+                                            key,
+                                            e.target.checked
+                                          )
+                                        }
+                                      />
+                                      <span>{label}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </th>
+                      <th>
+                        <div className="col-header-with-filter">
+                          <span>Страна</span>
+                          <button
+                            type="button"
+                            className={
+                              countryFilterValues.size > 0
+                                ? "col-filter-trigger col-filter-trigger--active"
+                                : "col-filter-trigger"
+                            }
+                            onClick={() => setCountryFilterOpen((v) => !v)}
+                          >
+                            ▾
+                          </button>
+                          {countryFilterOpen && (
+                            <div className="col-filter-popover">
+                              <div className="col-filter-popover-header">
+                                <span>Фильтр по стране</span>
+                              </div>
+                              <div className="col-filter-actions">
+                                <button
+                                  type="button"
+                                  className="col-filter-link"
+                                  onClick={() =>
+                                    selectAllFilterValues(
+                                      "country",
+                                      countryOptions
+                                    )
+                                  }
+                                >
+                                  Выбрать все
+                                </button>
+                                <button
+                                  type="button"
+                                  className="col-filter-link"
+                                  onClick={() =>
+                                    clearFilterValues("country")
+                                  }
+                                >
+                                  Сбросить
+                                </button>
+                              </div>
+                              <div className="col-filter-options">
+                                {countryOptions.map((key) => {
+                                  const label = getOptionLabel(key);
+                                  const checked = countryFilterValues.has(key);
+                                  return (
+                                    <label
+                                      key={key}
+                                      className="col-filter-option"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={(e) =>
+                                          toggleFilterValue(
+                                            "country",
+                                            key,
+                                            e.target.checked
+                                          )
+                                        }
+                                      />
+                                      <span>{label}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </th>
                       <th>Характеристики</th>
-                    </tr>
-                    {/* Вторая строка заголовка с фильтрами по колонкам */}
-                    <tr className="products-filter-row">
-                      <th />
-                      <th>
-                        <input
-                          className="products-filter-input"
-                          placeholder="Фильтр ID"
-                          value={idFilter}
-                          onChange={(e) => setIdFilter(e.target.value)}
-                        />
-                      </th>
-                      <th>
-                        <input
-                          className="products-filter-input"
-                          placeholder="Фильтр по названию"
-                          value={nameFilter}
-                          onChange={(e) => setNameFilter(e.target.value)}
-                        />
-                      </th>
-                      <th>
-                        <input
-                          className="products-filter-input"
-                          placeholder="Фильтр по производителю"
-                          value={producerFilter}
-                          onChange={(e) => setProducerFilter(e.target.value)}
-                        />
-                      </th>
-                      <th>
-                        <input
-                          className="products-filter-input"
-                          placeholder="Фильтр по стране"
-                          value={countryFilter}
-                          onChange={(e) => setCountryFilter(e.target.value)}
-                        />
-                      </th>
-                      <th>
-                        <input
-                          className="products-filter-input"
-                          placeholder="Фильтр по характеристикам"
-                          value={specsFilter}
-                          onChange={(e) => setSpecsFilter(e.target.value)}
-                        />
-                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1218,6 +1340,7 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
     </div>
   );
 }
+
 
 
 export default App;
