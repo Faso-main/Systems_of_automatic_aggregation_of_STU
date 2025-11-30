@@ -24,7 +24,7 @@ const pool = new Pool({
   user: 'th3_app',
   host: 'localhost',
   database: 'th3_db',
-  password: '1234', // поправить если другое
+  password: '1234', // поправь на свой если нужно
   port: 5432,
 });
 
@@ -32,9 +32,13 @@ const pool = new Pool({
 // Вспомогательные функции
 // ===========================
 
+/**
+ * Преобразует строку категории из БД к формату, который удобен фронтенду.
+ */
 function mapCategoryRow(row) {
   const createdAt = row.generated_at || row.created_at || null;
 
+  // нормализуем статус и рейтинг
   const status = row.admin_status || 'pending';
   const rating =
     row.admin_rating === null || row.admin_rating === undefined
@@ -52,22 +56,19 @@ function mapCategoryRow(row) {
     name: row.name,
     description: row.short_description || '',
     createdAt,
-    status,
-    rating,
+    status, // 'pending' | 'approved' | 'rejected'
+    rating, // number
     productIds: row.product_ids || [],
-    features: row.category_features || [],
+    features: row.category_features || [], // [{ key, values: [...] }, ...]
     hasNewItems,
     newItemsCount,
   };
 }
 
-// ------------------------------------------------------
-// Формирование СТЕ в формат, который ждёт runtime_llm_itr3
-// ------------------------------------------------------
+// оформляем СТЕ в формат, который ждёт runtime_llm_itr3
 function buildItemForRuntime(product, categoryName) {
   const specsText =
     typeof product.raw_specs === 'string' ? product.raw_specs : '';
-
   const specsLines = specsText
     ? specsText
         .split(/[;\n]/)
@@ -90,9 +91,7 @@ function buildItemForRuntime(product, categoryName) {
   return item;
 }
 
-// ----------------------------------------------
 // Базовый SELECT для категорий
-// ----------------------------------------------
 const CATEGORY_SELECT = `
   SELECT
       c.id                                      AS id,
@@ -133,21 +132,18 @@ const CATEGORY_SELECT = `
 // РОУТЫ
 // ===========================
 
-// ---------------------
 // Health-check
-// ---------------------
 app.get('/api/health', async (req, res) => {
   try {
     const result = await pool.query('SELECT NOW()');
     res.json({ status: 'OK', db_time: result.rows[0].now });
   } catch (err) {
+    console.error('Ошибка /api/health:', err);
     res.status(500).json({ status: 'ERROR', error: 'DB not available' });
   }
 });
 
-// ---------------------
 // Все категории
-// ---------------------
 app.get('/api/categories', async (req, res) => {
   try {
     const query = `
@@ -170,16 +166,18 @@ app.get('/api/categories', async (req, res) => {
 
     res.json({ categories });
   } catch (err) {
+    console.error('Ошибка /api/categories:', err);
     res.status(500).json({ error: 'Не удалось загрузить категории' });
   }
 });
 
-// ---------------------
-// Одна категория
-// ---------------------
+// Одна категория по id
 app.get('/api/categories/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ error: 'Некорректный ID категории' });
+    }
 
     const query = `
       ${CATEGORY_SELECT}
@@ -199,51 +197,64 @@ app.get('/api/categories/:id', async (req, res) => {
 
     const result = await pool.query(query, [id]);
 
-    if (result.rows.length === 0)
+    if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Категория не найдена' });
+    }
 
-    res.json({ category: mapCategoryRow(result.rows[0]) });
+    const category = mapCategoryRow(result.rows[0]);
+    res.json({ category });
   } catch (err) {
+    console.error('Ошибка /api/categories/:id:', err);
     res.status(500).json({ error: 'Не удалось загрузить категорию' });
   }
 });
 
-// ---------------------
-// Рейтинг категории
-// ---------------------
+// Рейтинг категории (1–5)
 app.post('/api/categories/:id/rating', async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const ratingInt = Number(req.body.rating);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ error: 'Некорректный id категории' });
+    }
 
-    if (!Number.isInteger(ratingInt) || ratingInt < 1 || ratingInt > 5)
-      return res.status(400).json({ error: 'rating должен быть 1–5' });
+    const { rating } = req.body || {};
+    const ratingInt = Number(rating);
+
+    if (!Number.isInteger(ratingInt) || ratingInt < 1 || ratingInt > 5) {
+      return res
+        .status(400)
+        .json({ error: 'rating должен быть целым числом от 1 до 5' });
+    }
 
     const upd = await pool.query(
       `
       UPDATE product_category
       SET admin_rating = $1
       WHERE id = $2
-      RETURNING id;
+      RETURNING id, name, admin_rating;
       `,
       [ratingInt, id]
     );
 
-    if (upd.rowCount === 0)
+    if (upd.rowCount === 0) {
       return res.status(404).json({ error: 'Категория не найдена' });
+    }
 
-    res.json({ ok: true });
+    return res.json({ category: upd.rows[0] });
   } catch (err) {
-    res.status(500).json({ error: 'Не удалось обновить рейтинг' });
+    console.error('Ошибка POST /api/categories/:id/rating:', err);
+    return res.status(500).json({ error: 'Не удалось обновить рейтинг' });
   }
 });
 
-// ---------------------
-// Обновление категории
-// ---------------------
+// Обновление категории (описание / статус / рейтинг)
 app.patch('/api/categories/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ error: 'Некорректный ID категории' });
+    }
+
     const { rating, status, description } = req.body || {};
 
     const fields = [];
@@ -263,41 +274,44 @@ app.patch('/api/categories/:id', async (req, res) => {
       values.push(description);
     }
 
-    if (fields.length === 0)
+    if (fields.length === 0) {
       return res.status(400).json({ error: 'Нечего обновлять' });
+    }
 
     values.push(id);
 
-    const upd = await pool.query(
-      `
+    const updateQuery = `
       UPDATE product_category
       SET ${fields.join(', ')}
       WHERE id = $${idx}
       RETURNING id;
-      `,
-      values
-    );
+    `;
+    const upd = await pool.query(updateQuery, values);
 
-    if (upd.rowCount === 0)
+    if (upd.rowCount === 0) {
       return res.status(404).json({ error: 'Категория не найдена' });
+    }
 
     res.json({ ok: true });
   } catch (err) {
+    console.error('Ошибка PATCH /api/categories/:id:', err);
     res.status(500).json({ error: 'Не удалось обновить категорию' });
   }
 });
 
-// ======================================================
-// ГЛАВНОЕ — Перегенерация категории
-// ======================================================
+// Перегенерация категории через Python LLM-рантайм
 app.post('/api/categories/:id/regenerate', async (req, res) => {
   const client = await pool.connect();
 
   try {
     const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      client.release();
+      return res.status(400).json({ error: 'Некорректный ID категории' });
+    }
 
-    const catResult = await client.query(
-      `
+    // 1. Получаем категорию (название) + список id СТЕ
+    const catQuery = `
       ${CATEGORY_SELECT}
       WHERE c.id = $1
       GROUP BY
@@ -311,9 +325,9 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
         c.has_new_items,
         c.new_items_count
       LIMIT 1;
-      `,
-      [id]
-    );
+    `;
+
+    const catResult = await client.query(catQuery, [id]);
 
     if (catResult.rows.length === 0) {
       client.release();
@@ -322,8 +336,9 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
 
     const catRow = mapCategoryRow(catResult.rows[0]);
     const categoryName = catRow.name;
+    const productIds = catRow.productIds || [];
 
-    // Загружаем товары
+    // 2. Загружаем все товары по этой категории
     const prodResult = await client.query(
       `
       SELECT id, name, producer, country, raw_specs
@@ -335,16 +350,17 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
     );
 
     const products = prodResult.rows;
-
     if (products.length === 0) {
       client.release();
-      return res.status(400).json({ error: 'Нет СТЕ для генерации' });
+      return res.status(400).json({
+        error: 'У категории нет СТЕ — нечего перегенерировать',
+      });
     }
 
-    // Готовим формат для runtime
+    // 3. Оформляем СТЕ так, как ждёт runtime_llm_itr3
     const items = products.map((p) => buildItemForRuntime(p, categoryName));
 
-    // Запрос в python runtime
+    // 4. Отправляем в Python-сервис
     const runtimeResp = await fetch(
       `${RUNTIME_LLM_URL}/regenerate-category`,
       {
@@ -359,48 +375,61 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
     );
 
     if (!runtimeResp.ok) {
+      console.error(
+        'runtime_llm_itr3 error:',
+        runtimeResp.status,
+        await runtimeResp.text()
+      );
       client.release();
-      return res.status(502).json({ error: 'LLM-сервис недоступен' });
+      return res.status(502).json({
+        error: 'LLM-сервис недоступен или вернул ошибку',
+      });
     }
 
     const runtimeData = await runtimeResp.json();
+    const shortDescription = runtimeData.short_description || '';
     const features = Array.isArray(runtimeData.features)
       ? runtimeData.features
       : [];
 
+    // 5. Обновляем БД в транзакции:
+    //    - обновляем описание и служебные флаги категории,
+    //    - пересоздаём записи в category_feature.
     await client.query('BEGIN');
-
-    // ████████████████████████████████████████████
-    // <<< ОСНОВНОЕ ИЗМЕНЕНИЕ: НЕ пишем short_description >>>
-    // ████████████████████████████████████████████
 
     await client.query(
       `
       UPDATE product_category
       SET
-        generated_at    = NOW(),
-        has_new_items   = FALSE,
-        new_items_count = 0
-      WHERE id = $1;
+        short_description = $1,
+        generated_at      = NOW(),
+        has_new_items     = FALSE,
+        new_items_count   = 0
+      WHERE id = $2;
       `,
-      [id]
+      [shortDescription, id]
     );
 
-    // Удаляем старые характеристики
+    // удаляем старые характеристики
     await client.query(
-      `DELETE FROM category_feature WHERE category_id = $1`,
+      `DELETE FROM category_feature WHERE category_id = $1;`,
       [id]
     );
 
-    // Вставляем новые
+    // вставляем новые
     for (const f of features) {
-      for (const value of f.values) {
+      const key = f.key;
+      const values = Array.isArray(f.values) ? f.values : [];
+      if (!key || values.length === 0) continue;
+
+      for (const value of values) {
+        if (!value) continue;
         await client.query(
           `
           INSERT INTO category_feature (category_id, key, value)
           VALUES ($1, $2, $3);
           `,
-          [id, f.key, value]
+          [id, key, value]
         );
       }
     }
@@ -408,31 +437,40 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
     await client.query('COMMIT');
     client.release();
 
+    // Можно вернуть просто ok, фронт при желании может дернуть GET /api/categories/:id
     res.json({ ok: true });
   } catch (err) {
+    console.error('Ошибка POST /api/categories/:id/regenerate:', err);
     try {
       await client.query('ROLLBACK');
-    } catch {}
-
+    } catch (e) {
+      console.error('Ошибка rollback:', e);
+    }
     client.release();
-    res.status(500).json({ error: 'Ошибка перегенерации категории' });
+    res.status(500).json({ error: 'Не удалось перегенерировать категорию' });
   }
 });
 
 // ===============================
-// Получить товары по списку id
+// Получить товары по списку id СТЕ
 // ===============================
 app.post('/api/products/by-ids', async (req, res) => {
   try {
     const { ids } = req.body || {};
 
-    if (!Array.isArray(ids) || ids.length === 0)
+    if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ error: 'Не переданы id товаров' });
+    }
 
-    const cleanIds = [...new Set(ids.map((x) => Number(x)).filter(Number.isInteger))];
+    const cleanIds = [...new Set(
+      ids
+        .map((x) => Number(x))
+        .filter((x) => Number.isInteger(x))
+    )];
 
-    if (cleanIds.length === 0)
+    if (cleanIds.length === 0) {
       return res.status(400).json({ error: 'Некорректные id товаров' });
+    }
 
     const result = await pool.query(
       `
@@ -446,18 +484,17 @@ app.post('/api/products/by-ids', async (req, res) => {
 
     res.json({ products: result.rows });
   } catch (err) {
+    console.error('Ошибка POST /api/products/by-ids:', err);
     res.status(500).json({ error: 'Не удалось загрузить товары' });
   }
 });
 
-// ===============================
-// Поиск категорий (FAISS search)
-// ===============================
 app.get('/api/search/categories', async (req, res) => {
   try {
     const q = (req.query.q || '').toString();
-
-    if (!q.trim()) return res.json([]);
+    if (!q.trim()) {
+      return res.json([]);
+    }
 
     const params = new URLSearchParams({
       q,
@@ -470,19 +507,18 @@ app.get('/api/search/categories', async (req, res) => {
     );
 
     if (!resp.ok) {
-      return res.status(500).json({ error: 'search unavailable' });
+      console.error('search service error', resp.status);
+      return res.status(500).json({ error: 'search service unavailable' });
     }
 
     const data = await resp.json();
     res.json(data);
   } catch (err) {
+    console.error('Ошибка /api/search/categories:', err);
     res.status(500).json({ error: 'internal search error' });
   }
 });
 
-// ===============================
-// Запуск сервера
-// ===============================
 app.listen(PORT, () => {
   console.log(`API сервер запущен на http://localhost:${PORT}`);
 });
