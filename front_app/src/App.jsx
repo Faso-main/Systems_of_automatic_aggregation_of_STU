@@ -487,9 +487,9 @@ function App() {
                       <tr
                         key={cat.id}
                         className={
-                          cat.id === selectedCategoryId
-                            ? "table-row table-row--active"
-                            : "table-row"
+                          "table-row" +
+                          (cat.id === selectedCategoryId ? " table-row--active" : "") +
+                          (cat.hasUntrainedItems ? " table-row--warning" : "")
                         }
                         onClick={() => setSelectedCategoryId(cat.id)}
                       >
@@ -509,7 +509,14 @@ function App() {
                               Нет
                             </span>
                           )}
+
+                          {cat.hasUntrainedItems && (
+                            <div className="training-warning">
+                              Необученных СТЕ: {cat.untrainedItemsCount}
+                            </div>
+                          )}
                         </td>
+
                         <td>
                           <span
                             className={`status-badge ${
@@ -839,16 +846,26 @@ function ProductsModal({ data, onClose }) {
                           .filter(Boolean)
                       : [];
 
+                    const untrained = p.is_used_for_training === false;
+
                     return (
-                      <tr key={p.id}>
+                      <tr
+                        key={p.id}
+                        className={
+                          untrained ? "product-row product-row--untrained" : "product-row"
+                        }
+                      >
                         <td className="products-col-id">{p.id}</td>
-                        <td className="products-col-name">{p.name || "—"}</td>
-                        <td className="products-col-producer">
-                          {p.producer || "—"}
+                        <td className="products-col-name">
+                          {p.name || "—"}
+                          {untrained && (
+                            <span className="product-tag-untrained">
+                              не использован в обучении
+                            </span>
+                          )}
                         </td>
-                        <td className="products-col-country">
-                          {p.country || "—"}
-                        </td>
+                        <td className="products-col-producer">{p.producer || "—"}</td>
+                        <td className="products-col-country">{p.country || "—"}</td>
                         <td className="products-col-specs">
                           {specsLines.length === 0 ? (
                             <span>—</span>
@@ -863,6 +880,7 @@ function ProductsModal({ data, onClose }) {
                       </tr>
                     );
                   })}
+
                 </tbody>
               </table>
             </div>

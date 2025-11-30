@@ -38,7 +38,6 @@ const pool = new Pool({
 function mapCategoryRow(row) {
   const createdAt = row.generated_at || row.created_at || null;
 
-  // нормализуем статус и рейтинг
   const status = row.admin_status || 'pending';
   const rating =
     row.admin_rating === null || row.admin_rating === undefined
@@ -51,19 +50,29 @@ function mapCategoryRow(row) {
       ? 0
       : Number(row.new_items_count);
 
+  const hasUntrainedItems = row.has_untrained_items === true;
+  const untrainedItemsCount =
+    row.untrained_items_count === null ||
+    row.untrained_items_count === undefined
+      ? 0
+      : Number(row.untrained_items_count);
+
   return {
     id: Number(row.id),
     name: row.name,
     description: row.short_description || '',
     createdAt,
-    status, // 'pending' | 'approved' | 'rejected'
-    rating, // number
+    status,
+    rating,
     productIds: row.product_ids || [],
-    features: row.category_features || [], // [{ key, values: [...] }, ...]
+    features: row.category_features || [],
     hasNewItems,
     newItemsCount,
+    hasUntrainedItems,
+    untrainedItemsCount,
   };
 }
+
 
 // оформляем СТЕ в формат, который ждёт runtime_llm_itr3
 function buildItemForRuntime(product, categoryName) {
@@ -106,6 +115,20 @@ const CATEGORY_SELECT = `
 
       ARRAY_AGG(DISTINCT p.id ORDER BY p.id)    AS product_ids,
 
+      COALESCE(
+        SUM(
+          CASE
+            WHEN p.id IS NOT NULL AND p.is_used_for_training = FALSE THEN 1
+            ELSE 0
+          END
+        ),
+        0
+      )                                         AS untrained_items_count,
+      COALESCE(
+        BOOL_OR(p.id IS NOT NULL AND p.is_used_for_training = FALSE),
+        FALSE
+      )                                         AS has_untrained_items,
+
       (
           SELECT JSON_AGG(
                      JSONB_BUILD_OBJECT(
@@ -127,6 +150,7 @@ const CATEGORY_SELECT = `
   FROM product_category c
   LEFT JOIN product p ON p.category_id = c.id
 `;
+
 
 // ===========================
 // РОУТЫ
