@@ -78,9 +78,9 @@ function App() {
   );
 
   // Фильтрация по локальным условиям + учёт результатов умного поиска
-  const filteredCategories = useMemo(
-    () =>
-      categories.filter((cat) => {
+    const filteredCategories = useMemo(() => {
+      // сначала как раньше — просто фильтруем
+      const base = categories.filter((cat) => {
         // 1) если умный поиск вернул какие-то ID — показываем только их
         if (smartResultIds.length > 0 && !smartResultIds.includes(cat.id)) {
           return false;
@@ -118,9 +118,25 @@ function App() {
         }
 
         return true;
-      }),
-    [categories, search, filterId, filterStatus, dateFrom, dateTo, smartResultIds]
-  );
+      });
+
+      // Если умный поиск активен — порядок НЕ меняем (всё как раньше)
+      if (smartResultIds.length > 0) {
+        return base;
+      }
+
+      // Если умный поиск не активен — поднимаем жёлтые категории наверх
+      const sorted = [...base].sort((a, b) => {
+        const aFlag = a.hasUntrainedItems ? 1 : 0;
+        const bFlag = b.hasUntrainedItems ? 1 : 0;
+        // хотим: hasUntrainedItems = true → выше
+        if (aFlag === bFlag) return 0;
+        return bFlag - aFlag; // b=1,a=0 → b выше, но мы сортируем так, что aFlag<bFlag => положительное → b после a? давай наоборот:
+      });
+
+      return sorted;
+    }, [categories, search, filterId, filterStatus, dateFrom, dateTo, smartResultIds]);
+
 
   const totalPages = useMemo(
     () =>
