@@ -3,45 +3,33 @@ import psycopg2.extras
 
 PG_DSN = "postgresql://th3_app:1234@localhost:5432/th3_db"
 
-# Порог, по которому ребро попадает в семейство.
-# Чем выше EDGE_THRESHOLD — тем меньше связей и больше "мелких" семейств.
-EDGE_THRESHOLD = 0.7  # можно потом подкрутить
+GROUP_THRESHOLD = 0.75  # порог для групп СТЕ
 
 
 def load_edges(conn):
-    """
-    Тянем рёбра (похожие пары категорий) из category_similarity,
-    только те, что выше порога EDGE_THRESHOLD.
-    """
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(
             """
-            SELECT category_id_a, category_id_b, similarity
-            FROM category_similarity
+            SELECT product_id_a, product_id_b, similarity
+            FROM product_similarity
             WHERE similarity >= %s
             """,
-            (EDGE_THRESHOLD,),
+            (GROUP_THRESHOLD,),
         )
         rows = cur.fetchall()
 
     edges = []
     for row in rows:
-        a = int(row["category_id_a"])
-        b = int(row["category_id_b"])
+        a = int(row["product_id_a"])
+        b = int(row["product_id_b"])
         sim = float(row["similarity"])
         edges.append((a, b, sim))
 
-    print(f"[families] загружено рёбер: {len(edges)} (threshold={EDGE_THRESHOLD})")
+    print(f"[prod_groups] рёбер: {len(edges)} (threshold={GROUP_THRESHOLD})")
     return edges
 
 
 def build_components(edges):
-    """
-    По списку рёбер строим связные компоненты (группы категорий).
-    Возвращаем:
-      - список компонент (каждая — список category_id),
-      - множество узлов, которые встречались хоть в одном ребре.
-    """
     from collections import defaultdict, deque
 
     graph = defaultdict(set)
@@ -77,87 +65,80 @@ def build_components(edges):
     return components, nodes
 
 
-def load_all_category_ids(conn):
-    """
-    Забираем все id категорий, чтобы добавить одиночные семьи
-    для тех, кто ни с кем не связан рёбрами.
-    """
+def load_all_product_ids(conn):
     with conn.cursor() as cur:
-        cur.execute("SELECT id FROM product_category")
+        cur.execute("SELECT id FROM product")
         return [int(r[0]) for r in cur.fetchall()]
 
 
-def rebuild_families():
+def rebuild_product_groups():
     conn = psycopg2.connect(PG_DSN)
     conn.autocommit = False
 
     try:
-        # 1. Загружаем рёбра из category_similarity
         edges = load_edges(conn)
+        comps, nodes_with_edges = build_components(edges)
 
-        # 2. Строим компоненты связности по этим рёбрам
-        components, nodes_with_edges = build_components(edges)
-        print(f"[families] компонент по рёбрам: {len(components)}")
+        all_ids = set(load_all_product_ids(conn))
+        lonely = sorted(all_ids - nodes_with_edges)
 
-        # 3. Добавляем одиночные категории (без рёбер) как отдельные семьи
-        all_ids = set(load_all_category_ids(conn))
-        lonely_categories = sorted(all_ids - nodes_with_edges)
+        for pid in lonely:
+            comps.append([pid])
 
-        for cat_id in lonely_categories:
-            components.append([cat_id])
-
-        print(f"[families] всего компонент (семейств) с учётом одиночек: {len(components)}")
+        print(f"[prod_groups] всего групп (компонент): {len(comps)}")
 
         with conn.cursor() as cur:
-            # 4. Чистим старые данные ОДНИМ TRUNCATE с учётом внешнего ключа
             cur.execute(
                 """
-                TRUNCATE TABLE category_family_member, category_family
+                TRUNCATE TABLE product_group_member, product_group
                 RESTART IDENTITY;
                 """
             )
 
-            # 5. Для имени семейства берём имя первой категории внутри него
-            for comp_idx, comp in enumerate(components, start=1):
-                first_cat_id = comp[0]
+            total_groups = 0
+
+            for comp in comps:
+                first_pid = comp[0]
 
                 cur.execute(
-                    "SELECT name FROM product_category WHERE id = %s",
-                    (first_cat_id,),
+                    "SELECT name FROM product WHERE id = %s",
+                    (first_pid,),
                 )
                 row = cur.fetchone()
-                base_name = row[0] if row and row[0] else f"Семейство #{comp_idx}"
+                group_name = (
+                    row[0] if row and row[0] else f"Группа товаров #{total_groups+1}"
+                )
 
-                # создаём семейство
                 cur.execute(
                     """
-                    INSERT INTO category_family (name)
+                    INSERT INTO product_group (name)
                     VALUES (%s)
                     RETURNING id
                     """,
-                    (base_name,),
+                    (group_name,),
                 )
-                family_id = cur.fetchone()[0]
+                group_id = cur.fetchone()[0]
 
-                # добавляем участников
                 psycopg2.extras.execute_values(
                     cur,
                     """
-                    INSERT INTO category_family_member (family_id, category_id)
+                    INSERT INTO product_group_member (group_id, product_id)
                     VALUES %s
                     """,
-                    [(family_id, cid) for cid in comp],
+                    [(group_id, pid) for pid in comp],
                 )
 
+                total_groups += 1
+
         conn.commit()
-        print("[families] готово, семейства пересчитаны.")
+        print(f"[prod_groups] готово, всего групп: {total_groups}")
     except Exception as e:
         conn.rollback()
-        print("[families] ОШИБКА, откат:", e)
+        print("[prod_groups] ОШИБКА, откат:", e)
         raise
     finally:
         conn.close()
 
 
 if __name__ == "__main__":
-    rebuild_families()
+    rebuild_product_groups()
