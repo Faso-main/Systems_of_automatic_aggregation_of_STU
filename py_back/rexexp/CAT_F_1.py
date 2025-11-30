@@ -10,25 +10,35 @@ PG_DSN = "postgresql://th3_app:1234@localhost:5432/th3_db"
 
 # --- НАСТРОЙКИ СХОЖЕСТИ ---
 
-# итоговая метрика = token_sim (т.к. ключи в бакете одинаковые)
-SIM_THRESHOLD = 0.7          # минимум по token_sim
+SIM_THRESHOLD = 0.7          # минимум по Jaccard токенов (key=value)
+MIN_COMMON_TOKENS = 2        # минимум общих токенов, чтобы вообще считать
+MAX_TOKEN_BUCKET_SIZE = 100  # слишком частые токены выкидываем
+TOP_K_NEIGHBORS = 5          # максимум соседей на товар
 
-# минимальное число общих токенов, чтобы вообще считать Jaccard
-MIN_COMMON_TOKENS = 2
-
-# ограничение на размер бакета по одному токену:
-# если токен встречается у > N товаров, он считается слишком общим и пропускается
-MAX_TOKEN_BUCKET_SIZE = 100
-
-# максимум соседей на один товар (чтобы не было "звёзд")
-TOP_K_NEIGHBORS = 5
+# для удобства: технические имена супергрупп
+SF_SHINY          = "shiny"
+SF_SPETSODEZHDA   = "spetsodezhda"
+SF_ODEZHDA_VERH   = "odezhda_verh"
+SF_ODEZHDA_MED    = "odezhda_med"
+SF_ODEZHDA_OBYCH  = "odezhda_obych"
+SF_OBUV           = "obuv"
+SF_PERCHATKI      = "perchatki"
+SF_SIZ            = "siz"
+SF_HOZ            = "hoz"
+SF_MED_IZD        = "med_izd"
+SF_INSTRUMENT     = "instrument"
+SF_HIM            = "him"
+SF_ZAPCHASTI      = "zapchasti"
+SF_SPETSOSNASTKA  = "spetsosnastka"
+SF_OTHER          = "other"
 
 
 @dataclass
 class ProductFeatures:
     product_id: int
     name: str
-    family_id: int  # может быть None, если семейство не найдено
+    family_id: int  # может быть None
+    super_family: str
     keys: Set[str]
     tokens: Set[str]  # key=value
 
@@ -41,11 +51,233 @@ def jaccard(a: Set[str], b: Set[str]) -> float:
     return inter / union if union > 0 else 0.0
 
 
+def detect_super_family(name: str, keys: Set[str]) -> str:
+    """
+    Простая правиловая классификация товара в одну из супергрупп.
+    Используем:
+      - название (name)
+      - набор ключей характеристик (keys)
+    """
+    if not name:
+        name_l = ""
+    else:
+        name_l = name.lower()
+
+    keys_l = {k.lower() for k in keys}
+
+    # 1. ШИНЫ — по ключам и словам
+    tyre_keys = {
+        "диаметр посадочный",
+        "индекс нагрузки",
+        "индекс скорости",
+        "отношение профиля",
+        "ширина профиля",
+        "норма слойности",
+        "рисунок протектора",
+        "протектор",
+        "назначение шины",
+    }
+    if keys_l & tyre_keys:
+        return SF_SHINY
+    if any(sub in name_l for sub in ["шина ", "шины ", "покрышк", "r13", "r14", "r15", "r16", "r17", "r18"]):
+        return SF_SHINY
+
+    # 2. ОБУВЬ
+    if any(
+        sub in name_l
+        for sub in ["обувь", "ботинк", "туфл", "сапог", "полуботин", "кроссовк", "галош", "валенк", "сланц", "сандал"]
+    ):
+        return SF_OBUV
+
+    # 3. ПЕРЧАТКИ
+    if any(sub in name_l for sub in ["перчатк", "рукавиц", "варежк", "нарукавник"]):
+        return SF_PERCHATKI
+
+    # 4. СИЗ (каски, очки, респираторы и т.п.)
+    if any(
+        sub in name_l
+        for sub in [
+            "респиратор",
+            "каска",
+            "щиток",
+            "защитн",  # в сочетании с очками / шлемами и т.п.
+            "очки защит",
+            "наушники противошум",
+            "противошумные",
+            "привязь",
+            "страховоч",
+            "самоспасател",
+        ]
+    ):
+        return SF_SIZ
+
+    # 5. СПЕЦОДЕЖДА (защитная, сигнальная и т.п.)
+    if any(
+        sub in name_l
+        for sub in [
+            "одежда специальная",
+            "спецодежд",
+            "костюм сигналь",
+            "костюм защитн",
+            "боевоя одежда пожарного",
+            "боеприпас"  # осторожно, но пусть будет
+        ]
+    ):
+        return SF_SPETSODEZHDA
+
+    # 6. ОДЕЖДА МЕД
+    if "медицинск" in name_l or "пациент" in name_l:
+        # но если это не обувь/перчатки/СИЗ
+        if not any(sub in name_l for sub in ["ботинк", "туфл", "сапог", "перчатк", "респиратор", "каска"]):
+            return SF_ODEZHDA_MED
+
+    # 7. ОДЕЖДА ВЕРХНЯЯ (куртки, жилеты, пальто, ветровки)
+    if any(
+        sub in name_l
+        for sub in ["куртк", "ветровк", "пальто", "полупальто", "парка", "анорак", "жилет"]
+    ):
+        # если в названии явно мед/спец — тогда те классifikаторы уже сработали выше
+        return SF_ODEZHDA_VERH
+
+    # 8. ОДЕЖДА ОБЫЧНАЯ (брюки/сорочки/футболки/юбки/платья и т.п.)
+    if any(
+        sub in name_l
+        for sub in [
+            "брюк",
+            "сорочк",
+            "рубашк",
+            "футболк",
+            "платье",
+            "юбк",
+            "шорт",
+            "джемпер",
+            "свитер",
+            "толстовк",
+            "жилет",
+        ]
+    ):
+        return SF_ODEZHDA_OBYCH
+
+    # 9. МЕДИЦИНСКИЕ ИЗДЕЛИЯ (не одежда)
+    if any(
+        sub in name_l
+        for sub in [
+            "шприц",
+            "катетер",
+            "бинт",
+            "марл",
+            "пластыр",
+            "игл",
+            "скальпел",
+            "инфуз",
+            "система перелив",
+            "зонд",
+            "раствор для инъек",
+        ]
+    ):
+        return SF_MED_IZD
+
+    # 10. ЖИДКОСТИ / ХИМИЯ
+    if any(
+        sub in name_l
+        for sub in [
+            "масло",
+            "смазк",
+            "раствор",
+            "жидк",
+            "кислот",
+            "щелоч",
+            "реагент",
+            "растворител",
+            "моющ",
+            "шампун",
+            "антисепт",
+            "спирт",
+        ]
+    ):
+        return SF_HIM
+
+    # 11. МЕШКИ / ХОЗТОВАРЫ
+    if any(
+        sub in name_l
+        for sub in [
+            "мешок",
+            "мешки",
+            "полотенц",
+            "салфетк",
+            "ведро",
+            "таз",
+            "швабр",
+            "тряпк",
+            "хоз",
+            "пакет",
+        ]
+    ):
+        return SF_HOZ
+
+    # 12. ИНСТРУМЕНТЫ
+    if any(
+        sub in name_l
+        for sub in [
+            "ключ",
+            "отвертк",
+            "молоток",
+            "кусач",
+            "пассатиж",
+            "инструмент",
+            "шуруповерт",
+            "дрель",
+            "пила",
+        ]
+    ):
+        return SF_INSTRUMENT
+
+    # 13. ЗАПЧАСТИ
+    if any(
+        sub in name_l
+        for sub in [
+            "запчаст",
+            "запасная часть",
+            "фильтр",
+            "подшипн",
+            "сальник",
+            "патрубок",
+            "шланг",
+            "муфта",
+            "колодк",
+            "клапан",
+        ]
+    ):
+        return SF_ZAPCHASTI
+
+    # 14. СПЕЦОСНАСТКА / СНАРЯЖЕНИЕ
+    if any(
+        sub in name_l
+        for sub in [
+            "снаряжен",
+            "оснастк",
+            "строп",
+            "карабин",
+            "такелаж",
+            "стропы",
+            "анкер",
+            "стяжка ременная",
+        ]
+    ):
+        return SF_SPETSOSNASTKA
+
+    # 15. По ключам можно ещё раз понять одежду
+    if any(k in keys_l for k in ["размер", "рост", "обхват груди"]):
+        return SF_ODEZHDA_OBYCH
+
+    return SF_OTHER
+
+
 def load_product_features(conn) -> List[ProductFeatures]:
     """
-    Загружаем товары, их семейства категорий и характеристики.
+    Тянем товары, семейства категорий и характеристики.
 
-    Ожидаем схему (подгони под себя, если нужно):
+    Ожидаем схему:
       - product (id, name, category_id)
       - product_category (id)
       - category_family_member (family_id, category_id)
@@ -88,7 +320,6 @@ def load_product_features(conn) -> List[ProductFeatures]:
                 prod_family[pid] = int(family_id)
 
             if key is None:
-                # товар без характеристик — пока пропускаем
                 continue
 
             if pid not in by_prod:
@@ -101,19 +332,22 @@ def load_product_features(conn) -> List[ProductFeatures]:
         if not keys:
             continue
 
-        # токены вида "Ключ=Значение"
         tokens: Set[str] = set()
         for k, vs in kv.items():
             for v in vs:
                 tokens.add(f"{k}={v}")
 
         family_id = prod_family.get(pid)
+        name = prod_names.get(pid, "")
+
+        sf = detect_super_family(name, keys)
 
         result.append(
             ProductFeatures(
                 product_id=pid,
-                name=prod_names.get(pid, ""),
+                name=name,
                 family_id=family_id,
+                super_family=sf,
                 keys=keys,
                 tokens=tokens,
             )
@@ -132,7 +366,7 @@ def rebuild_product_similarity():
         n = len(products)
         print(
             f"[prod_sim] считаем похожесть для {n} товаров "
-            f"(по характеристикам без нейросетей, SIM_THRESHOLD={SIM_THRESHOLD})"
+            f"(супергруппы + по характеристикам, SIM_THRESHOLD={SIM_THRESHOLD})"
         )
 
         if n == 0:
@@ -142,7 +376,7 @@ def rebuild_product_similarity():
             print("[prod_sim] нет товаров с фичами, таблица product_similarity очищена.")
             return
 
-        # 1. Разбиваем по семействам категорий
+        # 1. Разбиваем по семействам категорий (для производительности)
         by_family: Dict[int, List[ProductFeatures]] = {}
         no_family: List[ProductFeatures] = []
 
@@ -164,28 +398,26 @@ def rebuild_product_similarity():
             if m <= 1:
                 return
 
-            # 2. Внутри семейства разбиваем по набору ключей (fingerprint)
-            buckets_by_keys: Dict[str, List[ProductFeatures]] = defaultdict(list)
+            # 2. Внутри семейства делим по super_family + набору ключей
+            buckets: Dict[Tuple[str, str], List[ProductFeatures]] = defaultdict(list)
             for p in prods:
-                fp = "||".join(sorted(p.keys))
-                buckets_by_keys[fp].append(p)
+                fp_keys = "||".join(sorted(p.keys))
+                key = (p.super_family, fp_keys)
+                buckets[key].append(p)
 
-            bucket_pairs_count = 0
-
-            for fp, bucket_prods in buckets_by_keys.items():
+            for (sf, fp_keys), bucket_prods in buckets.items():
                 size = len(bucket_prods)
                 if size <= 1:
                     continue
 
-                print(f"[prod_sim]   ключи={fp}, товаров={size}")
+                print(f"[prod_sim]   super_family={sf}, ключи={fp_keys}, товаров={size}")
 
-                # Индекс по токенам внутри этого ключевого бакета
+                # индекс по токенам внутри этого бакета
                 token_index: Dict[str, List[int]] = defaultdict(list)
                 for idx, prod in enumerate(bucket_prods):
                     for token in prod.tokens:
                         token_index[token].append(idx)
 
-                # pair_scores[(i,j)] = количество общих токенов
                 pair_scores: Dict[Tuple[int, int], int] = defaultdict(int)
 
                 for token, idx_list in token_index.items():
@@ -193,7 +425,6 @@ def rebuild_product_similarity():
                     if L <= 1:
                         continue
                     if L > MAX_TOKEN_BUCKET_SIZE:
-                        # слишком частый токен, пропускаем
                         continue
 
                     for pos_i in range(L):
@@ -205,9 +436,7 @@ def rebuild_product_similarity():
                             a_idx, b_idx = (i, j) if i < j else (j, i)
                             pair_scores[(a_idx, b_idx)] += 1
 
-                # Считаем Jaccard по токенам только для пар с достаточным пересечением
                 neighbors_by_idx: Dict[int, List[Tuple[int, float]]] = defaultdict(list)
-
                 for (i, j), common_count in pair_scores.items():
                     if common_count < MIN_COMMON_TOKENS:
                         continue
@@ -222,9 +451,7 @@ def rebuild_product_similarity():
                     neighbors_by_idx[i].append((j, token_sim))
                     neighbors_by_idx[j].append((i, token_sim))
 
-                # Ограничиваем TOP_K_NEIGHBORS для каждого товара и записываем пары
                 local_pairs = []
-
                 for i, neigh_list in neighbors_by_idx.items():
                     if not neigh_list:
                         continue
@@ -248,9 +475,8 @@ def rebuild_product_similarity():
                             continue
                         seen_pairs.add(pair_key)
 
-                        # ключи одинаковые в бакете => key_similarity = 1.0
+                        # ключи в бакете одинаковые => key_sim = 1.0
                         key_sim = 1.0
-                        # общие/отсутствующие ключи — для инфы
                         a_keys = a.keys
                         b_keys = b.keys
                         common_keys = sorted(a_keys & b_keys)
@@ -261,25 +487,26 @@ def rebuild_product_similarity():
                             (
                                 a_id,
                                 b_id,
-                                round(float(token_sim), 4),  # similarity = token_sim
-                                round(float(key_sim), 4),    # = 1.0
-                                round(float(token_sim), 4),  # value_similarity = token_sim
+                                round(float(token_sim), 4),  # similarity
+                                round(float(key_sim), 4),    # key_similarity
+                                round(float(token_sim), 4),  # value_similarity
                                 common_keys,
                                 only_a_keys,
                                 only_b_keys,
                             )
                         )
 
-                bucket_pairs_count += len(local_pairs)
+                print(
+                    f"[prod_sim]   super_family={sf}, ключи={fp_keys}: "
+                    f"пар после фильтров={len(local_pairs)}"
+                )
                 rows_to_insert.extend(local_pairs)
 
-            print(f"[prod_sim] bucket={bucket_name}: пар после фильтров={bucket_pairs_count}")
-
-        # 1) Обрабатываем все семейства
+        # 1) семейства
         for fam_id, prods in by_family.items():
             process_bucket(f"family_{fam_id}", prods)
 
-        # 2) Товары без семейства — один общий бакет
+        # 2) товары без семейства
         if no_family:
             process_bucket("no_family", no_family)
 
@@ -307,7 +534,7 @@ def rebuild_product_similarity():
         conn.commit()
         print(
             "[prod_sim] готово, таблица product_similarity обновлена "
-            "(по характеристикам, с разбиением по ключам)."
+            "(с учётом супергрупп и характеристик)."
         )
     except Exception as e:
         conn.rollback()
