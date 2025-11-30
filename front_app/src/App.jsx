@@ -687,6 +687,14 @@ function CategoryCard({
               {saving ? "Сохранение..." : "Сохранить изменения"}
             </button>
             <button
+              type="button"
+              className="btn btn-ghost btn-small"
+              onClick={() => onShowProducts?.()}
+              disabled={!productIds || productIds.length === 0}
+            >
+              Показать все СТЕ
+            </button>
+            <button
               className="btn btn-primary"
               onClick={() => onRegenerate?.(id)}
               type="button"
@@ -738,14 +746,6 @@ function CategoryCard({
             <span className="products-count">
               Количество СТЕ в категории: {productIds?.length ?? 0}
             </span>
-            <button
-              type="button"
-              className="btn btn-ghost btn-small"
-              onClick={() => onShowProducts?.()}
-              disabled={!productIds || productIds.length === 0}
-            >
-              Показать все СТЕ
-            </button>
           </div>
         </div>
       </div>
