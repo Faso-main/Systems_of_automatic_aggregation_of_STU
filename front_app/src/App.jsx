@@ -1377,6 +1377,13 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
                   onChange={(e) => setSearchText(e.target.value)}
                 />
               </div>
+              <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleRegenerateClick}
+                >
+                  Перегенерировать по выбранным
+                </button>
             </div>
 
 
@@ -1622,13 +1629,6 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
                 <div className="modal-footer-info">
                   Выбрано товаров: {selectedIds.size} из {products.length}
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={handleRegenerateClick}
-                >
-                  Перегенерировать по выбранным
-                </button>
               </div>
             </>
           )}
