@@ -12,13 +12,15 @@ from transformers import AutoTokenizer, AutoModel
 
 PG_DSN = "postgresql://th3_app:1234@localhost:5432/th3_db"
 
-# та же модель, что и в train_characteristics_model_v4 / runtime_characteristics_model_v4
+# та же модель, что и в характеристиках (sbert)
 BASE_MODEL_NAME = "ai-forever/sbert_large_mt_nlu_ru"
 
 # веса и пороги "интеллектуальности"
 KEY_WEIGHT = 0.3       # вклад Jaccard по ключам
-EMB_WEIGHT = 0.7       # вклад семантического сходства по эмбеддингам
-SIM_THRESHOLD = 0.55   # итоговый порог: чем выше, тем "родственнее" пары
+EMB_WEIGHT = 0.7       # вклад семантики (эмбеддинги)
+SIM_THRESHOLD = 0.6    # минимальный итоговый скор, чтобы считать пары похожими
+
+TOP_K_NEIGHBORS = 3    # максимум соседей на одну категорию (сверху режем граф)
 
 
 @dataclass
@@ -167,7 +169,6 @@ def cosine_sim_matrix(emb: np.ndarray) -> np.ndarray:
     emb: (N, H)
     return: (N, N)
     """
-    # L2-нормировка
     norms = np.linalg.norm(emb, axis=1, keepdims=True) + 1e-9
     normed = emb / norms
     return normed @ normed.T
@@ -200,37 +201,64 @@ def rebuild_similarity_table():
         with conn.cursor() as cur:
             cur.execute("TRUNCATE TABLE category_similarity;")
 
-        # 3) Считаем сочетания пар
+        # 3) Строим KNN-граф: для каждой категории берём ТОП-K соседей по total_sim
         rows_to_insert = []
+        seen_pairs = set()  # чтобы (a,b) добавить один раз (a<b)
 
         for i in range(n):
             a = cats[i]
-            for j in range(i + 1, n):
+
+            # собираем кандидатов для категории i
+            local_candidates = []
+            for j in range(n):
+                if i == j:
+                    continue
                 b = cats[j]
 
-                # сходство по структуре (Jaccard по ключам)
                 key_sim = jaccard(a.keys, b.keys)
-
-                # семантическое сходство по эмбеддингам
                 emb_sim = float(cos_mat[i, j])
-
-                # комбинируем
                 total_sim = KEY_WEIGHT * key_sim + EMB_WEIGHT * emb_sim
 
                 if total_sim < SIM_THRESHOLD:
                     continue
 
-                common_keys = sorted(a.keys & b.keys)
-                only_a_keys = sorted(a.keys - b.keys)
-                only_b_keys = sorted(b.keys - a.keys)
+                local_candidates.append((j, total_sim, key_sim, emb_sim))
+
+            if not local_candidates:
+                continue
+
+            # берём TOP_K_NEIGHBORS по total_sim
+            local_candidates.sort(key=lambda x: x[1], reverse=True)
+            for j, total_sim, key_sim, emb_sim in local_candidates[:TOP_K_NEIGHBORS]:
+                b = cats[j]
+
+                # нормализуем порядок id (a_id < b_id), чтобы не дублировать пары
+                a_id = a.category_id
+                b_id = b.category_id
+                if a_id == b_id:
+                    continue
+                if a_id > b_id:
+                    a_id, b_id = b_id, a_id
+                    a_keys, b_keys = b.keys, a.keys
+                else:
+                    a_keys, b_keys = a.keys, b.keys
+
+                pair_key = (a_id, b_id)
+                if pair_key in seen_pairs:
+                    continue
+                seen_pairs.add(pair_key)
+
+                common_keys = sorted(a_keys & b_keys)
+                only_a_keys = sorted(a_keys - b_keys)
+                only_b_keys = sorted(b_keys - a_keys)
 
                 rows_to_insert.append(
                     (
-                        a.category_id,
-                        b.category_id,
-                        round(total_sim, 4),  # итоговая умная метрика
-                        round(key_sim, 4),    # структура
-                        round(emb_sim, 4),    # семантика (эмбеддинг)
+                        a_id,
+                        b_id,
+                        round(float(total_sim), 4),  # итоговая умная метрика
+                        round(float(key_sim), 4),    # структура
+                        round(float(emb_sim), 4),    # семантика
                         common_keys,
                         only_a_keys,
                         only_b_keys,
