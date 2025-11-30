@@ -8,18 +8,30 @@ from collections import defaultdict
 
 PG_DSN = "postgresql://th3_app:1234@localhost:5432/th3_db"
 
-# Веса / пороги для сходства
-KEY_WEIGHT = 0.3        # вклад структуры (набор ключей)
-TOKEN_WEIGHT = 0.7      # вклад значений (key=value)
-SIM_THRESHOLD = 0.6     # минимум, чтобы считать товары похожими
-MIN_KEY_SIM = 0.3       # минимальная схожесть по ключам, иначе не считаем
+# --- НАСТРОЙКИ СХОЖЕСТИ ---
 
-# Ограничение на размер бакета по одному токену:
-# если токен встречается у слишком большого числа товаров, он малоинформативен
-MAX_TOKEN_BUCKET_SIZE = 200   # можно крутить
+# вес структуры (набор ключей характеристик)
+KEY_WEIGHT = 0.3
+# вес значений (набор key=value токенов)
+TOKEN_WEIGHT = 0.7
 
-# Можно ограничить число связей на товар (top-K соседей); None = без ограничения
-TOP_K_NEIGHBORS = None  # например, 10 если захочешь
+# итоговый минимальный порог похожести
+SIM_THRESHOLD = 0.75          # было 0.6 — делаем заметно жёстче
+
+# минимальное сходство по ключам, иначе даже не считаем дальше
+MIN_KEY_SIM = 0.5             # было 0.3 — теперь структура должна быть реально похожей
+
+# минимальное сходство по токенам (key=value),
+# чтобы отсеять пары, совпадающие по паре случайных значений
+MIN_TOKEN_SIM = 0.5
+
+# ограничение на размер бакета по одному токену:
+# если токен встречается у > N товаров, он считается общим и пропускается
+MAX_TOKEN_BUCKET_SIZE = 100   # было 200 — ещё сильнее режем "Цвет=Черный" и т.п.
+
+# максимум соседей на один товар (чтобы не было звёздных хабов);
+# None = без ограничения
+TOP_K_NEIGHBORS = 10
 
 
 @dataclass
@@ -128,7 +140,10 @@ def rebuild_product_similarity():
     try:
         products = load_product_features(conn)
         n = len(products)
-        print(f"[prod_sim] считаем похожесть для {n} товаров (кластеризация по характеристикам, без нейросетей)")
+        print(
+            f"[prod_sim] считаем похожесть для {n} товаров "
+            f"(кластеризация по характеристикам, без нейросетей, порог={SIM_THRESHOLD})"
+        )
 
         if n == 0:
             with conn.cursor() as cur:
@@ -156,6 +171,8 @@ def rebuild_product_similarity():
         def process_bucket(bucket_name: str, prods: List[ProductFeatures]):
             m = len(prods)
             print(f"[prod_sim] bucket={bucket_name}, товаров={m}")
+            if m <= 1:
+                return
 
             # Индекс по токенам: token -> список индексов товаров в prods
             token_index: Dict[str, List[int]] = defaultdict(list)
@@ -175,20 +192,20 @@ def rebuild_product_similarity():
                     # слишком частый токен, типа "Цвет=Черный" — малоинформативен
                     continue
 
-                # Добавляем +1 к счётчику для каждой пары товаров, которые делят этот токен
-                # (упрощённый LSH-стайл подход)
-                for i_pos in range(L):
-                    i = idx_list[i_pos]
-                    for j_pos in range(i_pos + 1, L):
-                        j = idx_list[j_pos]
+                # добавляем +1 к счётчику для каждой пары товаров, которые делят этот токен
+                for pos_i in range(L):
+                    i = idx_list[pos_i]
+                    for pos_j in range(pos_i + 1, L):
+                        j = idx_list[pos_j]
                         if i == j:
                             continue
                         a_idx, b_idx = (i, j) if i < j else (j, i)
                         pair_scores[(a_idx, b_idx)] += 1
 
-            # Теперь для всех кандидатов считаем итоговую метрику похожести
-            # на основе Jaccard по keys и tokens
-            for (i, j), _ in pair_scores.items():
+            # Собираем для каждого товара список кандидатов
+            neighbors_by_idx: Dict[int, List[Tuple[int, float, float, float]]] = defaultdict(list)
+
+            for (i, j), _count in pair_scores.items():
                 a = prods[i]
                 b = prods[j]
 
@@ -197,49 +214,69 @@ def rebuild_product_similarity():
                     continue
 
                 token_sim = jaccard(a.tokens, b.tokens)
-                total_sim = KEY_WEIGHT * key_sim + TOKEN_WEIGHT * token_sim
+                if token_sim < MIN_TOKEN_SIM:
+                    continue
 
+                total_sim = KEY_WEIGHT * key_sim + TOKEN_WEIGHT * token_sim
                 if total_sim < SIM_THRESHOLD:
                     continue
 
-                a_id = a.product_id
-                b_id = b.product_id
+                neighbors_by_idx[i].append((j, total_sim, key_sim, token_sim))
+                neighbors_by_idx[j].append((i, total_sim, key_sim, token_sim))
 
-                if a_id == b_id:
-                    continue
-                if a_id > b_id:
-                    a_id, b_id = b_id, a_id
-                    a_keys, b_keys = b.keys, a.keys
-                else:
-                    a_keys, b_keys = a.keys, b.keys
+            # Ограничиваем максимум соседей на товар (TOP_K_NEIGHBORS)
+            # и собираем финальные пары
+            local_pairs = []
 
-                pair_key = (a_id, b_id)
-                if pair_key in seen_pairs:
-                    continue
-                seen_pairs.add(pair_key)
+            for i, neigh_list in neighbors_by_idx.items():
+                if TOP_K_NEIGHBORS is not None and len(neigh_list) > TOP_K_NEIGHBORS:
+                    neigh_list.sort(key=lambda x: x[1], reverse=True)
+                    neigh_list = neigh_list[:TOP_K_NEIGHBORS]
 
-                common_keys = sorted(a_keys & b_keys)
-                only_a_keys = sorted(a_keys - b_keys)
-                only_b_keys = sorted(b_keys - a_keys)
+                for j, total_sim, key_sim, token_sim in neigh_list:
+                    a = prods[i]
+                    b = prods[j]
+                    a_id = a.product_id
+                    b_id = b.product_id
 
-                rows_to_insert.append(
-                    (
-                        a_id,
-                        b_id,
-                        round(float(total_sim), 4),    # similarity (итог)
-                        round(float(key_sim), 4),      # по структуре
-                        round(float(token_sim), 4),    # по значениям
-                        common_keys,
-                        only_a_keys,
-                        only_b_keys,
+                    if a_id == b_id:
+                        continue
+                    if a_id > b_id:
+                        a_id, b_id = b_id, a_id
+                        a_keys, b_keys = b.keys, a.keys
+                    else:
+                        a_keys, b_keys = a.keys, b.keys
+
+                    pair_key = (a_id, b_id)
+                    if pair_key in seen_pairs:
+                        continue
+                    seen_pairs.add(pair_key)
+
+                    common_keys = sorted(a_keys & b_keys)
+                    only_a_keys = sorted(a_keys - b_keys)
+                    only_b_keys = sorted(b_keys - a_keys)
+
+                    local_pairs.append(
+                        (
+                            a_id,
+                            b_id,
+                            round(float(total_sim), 4),
+                            round(float(key_sim), 4),
+                            round(float(token_sim), 4),
+                            common_keys,
+                            only_a_keys,
+                            only_b_keys,
+                        )
                     )
-                )
+
+            print(f"[prod_sim] bucket={bucket_name}: пар после фильтров={len(local_pairs)}")
+            rows_to_insert.extend(local_pairs)
 
         # 1) Обрабатываем все семейства
         for fam_id, prods in by_family.items():
             process_bucket(f"family_{fam_id}", prods)
 
-        # 2) Товары без семейства — в один общий бакет
+        # 2) Товары без семейства — один общий бакет
         if no_family:
             process_bucket("no_family", no_family)
 
@@ -265,7 +302,10 @@ def rebuild_product_similarity():
                 )
 
         conn.commit()
-        print("[prod_sim] готово, таблица product_similarity обновлена (кластеризация по характеристикам).")
+        print(
+            "[prod_sim] готово, таблица product_similarity обновлена "
+            "(кластеризация по характеристикам, жёсткие пороги)."
+        )
     except Exception as e:
         conn.rollback()
         print("[prod_sim] ОШИБКА, откат:", e)
