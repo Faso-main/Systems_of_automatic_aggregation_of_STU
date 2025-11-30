@@ -4,13 +4,14 @@ import psycopg2.extras
 PG_DSN = "postgresql://th3_app:1234@localhost:5432/th3_db"
 
 # Порог, по которому ребро попадает в семейство.
-# Можно крутить, чтобы получить примерно нужное количество групп.
-EDGE_THRESHOLD = 0.7  # начинаем с 0.7, дальше можно подстроить
+# Чем выше EDGE_THRESHOLD — тем меньше связей и больше "мелких" семейств.
+EDGE_THRESHOLD = 0.7  # можно потом подкрутить
 
 
 def load_edges(conn):
     """
-    Тянем ребра из category_similarity, только достаточно "сильные".
+    Тянем рёбра (похожие пары категорий) из category_similarity,
+    только те, что выше порога EDGE_THRESHOLD.
     """
     with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
         cur.execute(
@@ -36,7 +37,10 @@ def load_edges(conn):
 
 def build_components(edges):
     """
-    По списку рёбер строим связные компоненты.
+    По списку рёбер строим связные компоненты (группы категорий).
+    Возвращаем:
+      - список компонент (каждая — список category_id),
+      - множество узлов, которые встречались хоть в одном ребре.
     """
     from collections import defaultdict, deque
 
@@ -55,9 +59,11 @@ def build_components(edges):
     for start in nodes:
         if start in visited:
             continue
+
         comp = []
         dq = deque([start])
         visited.add(start)
+
         while dq:
             v = dq.popleft()
             comp.append(v)
@@ -65,15 +71,17 @@ def build_components(edges):
                 if nei not in visited:
                     visited.add(nei)
                     dq.append(nei)
+
         components.append(sorted(comp))
 
-    # важно: категории, у которых НЕТ ни одного ребра,
-    # мы тоже хотим видеть как "отдельные одиночные семьи".
-    # Поэтому добавим одиночки, которых нет в nodes.
     return components, nodes
 
 
 def load_all_category_ids(conn):
+    """
+    Забираем все id категорий, чтобы добавить одиночные семьи
+    для тех, кто ни с кем не связан рёбрами.
+    """
     with conn.cursor() as cur:
         cur.execute("SELECT id FROM product_category")
         return [int(r[0]) for r in cur.fetchall()]
@@ -84,27 +92,35 @@ def rebuild_families():
     conn.autocommit = False
 
     try:
+        # 1. Загружаем рёбра из category_similarity
         edges = load_edges(conn)
-        components, nodes_with_edges = build_components(edges)
 
+        # 2. Строим компоненты связности по этим рёбрам
+        components, nodes_with_edges = build_components(edges)
+        print(f"[families] компонент по рёбрам: {len(components)}")
+
+        # 3. Добавляем одиночные категории (без рёбер) как отдельные семьи
         all_ids = set(load_all_category_ids(conn))
         lonely_categories = sorted(all_ids - nodes_with_edges)
 
-        # добавляем одиночные категории как отдельные компоненты
         for cat_id in lonely_categories:
             components.append([cat_id])
 
-        print(f"[families] всего компонент (семейств): {len(components)}")
+        print(f"[families] всего компонент (семейств) с учётом одиночек: {len(components)}")
 
         with conn.cursor() as cur:
-            # чистим старое
-            cur.execute("TRUNCATE TABLE category_family_member;")
-            cur.execute("TRUNCATE TABLE category_family RESTART IDENTITY;")
+            # 4. Чистим старые данные ОДНИМ TRUNCATE с учётом внешнего ключа
+            cur.execute(
+                """
+                TRUNCATE TABLE category_family_member, category_family
+                RESTART IDENTITY;
+                """
+            )
 
-            # для имени семейства возьмём имя первой категории внутри него
+            # 5. Для имени семейства берём имя первой категории внутри него
             for comp_idx, comp in enumerate(components, start=1):
-                # получаем имя первой категории
                 first_cat_id = comp[0]
+
                 cur.execute(
                     "SELECT name FROM product_category WHERE id = %s",
                     (first_cat_id,),
@@ -123,7 +139,7 @@ def rebuild_families():
                 )
                 family_id = cur.fetchone()[0]
 
-                # заполняем участников
+                # добавляем участников
                 psycopg2.extras.execute_values(
                     cur,
                     """
