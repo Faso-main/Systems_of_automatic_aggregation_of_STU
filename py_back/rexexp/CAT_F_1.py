@@ -10,28 +10,18 @@ PG_DSN = "postgresql://th3_app:1234@localhost:5432/th3_db"
 
 # --- НАСТРОЙКИ СХОЖЕСТИ ---
 
-# вес структуры (набор ключей характеристик)
-KEY_WEIGHT = 0.3
-# вес значений (набор key=value токенов)
-TOKEN_WEIGHT = 0.7
+# итоговая метрика = token_sim (т.к. ключи в бакете одинаковые)
+SIM_THRESHOLD = 0.7          # минимум по token_sim
 
-# итоговый минимальный порог похожести
-SIM_THRESHOLD = 0.75          # было 0.6 — делаем заметно жёстче
-
-# минимальное сходство по ключам, иначе даже не считаем дальше
-MIN_KEY_SIM = 0.5             # было 0.3 — теперь структура должна быть реально похожей
-
-# минимальное сходство по токенам (key=value),
-# чтобы отсеять пары, совпадающие по паре случайных значений
-MIN_TOKEN_SIM = 0.5
+# минимальное число общих токенов, чтобы вообще считать Jaccard
+MIN_COMMON_TOKENS = 2
 
 # ограничение на размер бакета по одному токену:
-# если токен встречается у > N товаров, он считается общим и пропускается
-MAX_TOKEN_BUCKET_SIZE = 100   # было 200 — ещё сильнее режем "Цвет=Черный" и т.п.
+# если токен встречается у > N товаров, он считается слишком общим и пропускается
+MAX_TOKEN_BUCKET_SIZE = 100
 
-# максимум соседей на один товар (чтобы не было звёздных хабов);
-# None = без ограничения
-TOP_K_NEIGHBORS = 10
+# максимум соседей на один товар (чтобы не было "звёзд")
+TOP_K_NEIGHBORS = 5
 
 
 @dataclass
@@ -142,7 +132,7 @@ def rebuild_product_similarity():
         n = len(products)
         print(
             f"[prod_sim] считаем похожесть для {n} товаров "
-            f"(кластеризация по характеристикам, без нейросетей, порог={SIM_THRESHOLD})"
+            f"(по характеристикам без нейросетей, SIM_THRESHOLD={SIM_THRESHOLD})"
         )
 
         if n == 0:
@@ -152,7 +142,7 @@ def rebuild_product_similarity():
             print("[prod_sim] нет товаров с фичами, таблица product_similarity очищена.")
             return
 
-        # Разбиваем товары по семействам категорий
+        # 1. Разбиваем по семействам категорий
         by_family: Dict[int, List[ProductFeatures]] = {}
         no_family: List[ProductFeatures] = []
 
@@ -174,103 +164,116 @@ def rebuild_product_similarity():
             if m <= 1:
                 return
 
-            # Индекс по токенам: token -> список индексов товаров в prods
-            token_index: Dict[str, List[int]] = defaultdict(list)
-            for idx, prod in enumerate(prods):
-                for token in prod.tokens:
-                    token_index[token].append(idx)
+            # 2. Внутри семейства разбиваем по набору ключей (fingerprint)
+            buckets_by_keys: Dict[str, List[ProductFeatures]] = defaultdict(list)
+            for p in prods:
+                fp = "||".join(sorted(p.keys))
+                buckets_by_keys[fp].append(p)
 
-            # Подсчёт кандидатов по токенам
-            # pair_scores[(i,j)] = количество общих "информативных" токенов
-            pair_scores: Dict[Tuple[int, int], int] = defaultdict(int)
+            bucket_pairs_count = 0
 
-            for token, idx_list in token_index.items():
-                L = len(idx_list)
-                if L <= 1:
-                    continue
-                if L > MAX_TOKEN_BUCKET_SIZE:
-                    # слишком частый токен, типа "Цвет=Черный" — малоинформативен
+            for fp, bucket_prods in buckets_by_keys.items():
+                size = len(bucket_prods)
+                if size <= 1:
                     continue
 
-                # добавляем +1 к счётчику для каждой пары товаров, которые делят этот токен
-                for pos_i in range(L):
-                    i = idx_list[pos_i]
-                    for pos_j in range(pos_i + 1, L):
-                        j = idx_list[pos_j]
-                        if i == j:
+                print(f"[prod_sim]   ключи={fp}, товаров={size}")
+
+                # Индекс по токенам внутри этого ключевого бакета
+                token_index: Dict[str, List[int]] = defaultdict(list)
+                for idx, prod in enumerate(bucket_prods):
+                    for token in prod.tokens:
+                        token_index[token].append(idx)
+
+                # pair_scores[(i,j)] = количество общих токенов
+                pair_scores: Dict[Tuple[int, int], int] = defaultdict(int)
+
+                for token, idx_list in token_index.items():
+                    L = len(idx_list)
+                    if L <= 1:
+                        continue
+                    if L > MAX_TOKEN_BUCKET_SIZE:
+                        # слишком частый токен, пропускаем
+                        continue
+
+                    for pos_i in range(L):
+                        i = idx_list[pos_i]
+                        for pos_j in range(pos_i + 1, L):
+                            j = idx_list[pos_j]
+                            if i == j:
+                                continue
+                            a_idx, b_idx = (i, j) if i < j else (j, i)
+                            pair_scores[(a_idx, b_idx)] += 1
+
+                # Считаем Jaccard по токенам только для пар с достаточным пересечением
+                neighbors_by_idx: Dict[int, List[Tuple[int, float]]] = defaultdict(list)
+
+                for (i, j), common_count in pair_scores.items():
+                    if common_count < MIN_COMMON_TOKENS:
+                        continue
+
+                    a = bucket_prods[i]
+                    b = bucket_prods[j]
+
+                    token_sim = jaccard(a.tokens, b.tokens)
+                    if token_sim < SIM_THRESHOLD:
+                        continue
+
+                    neighbors_by_idx[i].append((j, token_sim))
+                    neighbors_by_idx[j].append((i, token_sim))
+
+                # Ограничиваем TOP_K_NEIGHBORS для каждого товара и записываем пары
+                local_pairs = []
+
+                for i, neigh_list in neighbors_by_idx.items():
+                    if not neigh_list:
+                        continue
+
+                    if TOP_K_NEIGHBORS is not None and len(neigh_list) > TOP_K_NEIGHBORS:
+                        neigh_list.sort(key=lambda x: x[1], reverse=True)
+                        neigh_list = neigh_list[:TOP_K_NEIGHBORS]
+
+                    for j, token_sim in neigh_list:
+                        a = bucket_prods[i]
+                        b = bucket_prods[j]
+                        a_id = a.product_id
+                        b_id = b.product_id
+
+                        if a_id == b_id:
                             continue
-                        a_idx, b_idx = (i, j) if i < j else (j, i)
-                        pair_scores[(a_idx, b_idx)] += 1
+                        if a_id > b_id:
+                            a_id, b_id = b_id, a_id
+                        pair_key = (a_id, b_id)
+                        if pair_key in seen_pairs:
+                            continue
+                        seen_pairs.add(pair_key)
 
-            # Собираем для каждого товара список кандидатов
-            neighbors_by_idx: Dict[int, List[Tuple[int, float, float, float]]] = defaultdict(list)
+                        # ключи одинаковые в бакете => key_similarity = 1.0
+                        key_sim = 1.0
+                        # общие/отсутствующие ключи — для инфы
+                        a_keys = a.keys
+                        b_keys = b.keys
+                        common_keys = sorted(a_keys & b_keys)
+                        only_a_keys = sorted(a_keys - b_keys)
+                        only_b_keys = sorted(b_keys - a_keys)
 
-            for (i, j), _count in pair_scores.items():
-                a = prods[i]
-                b = prods[j]
-
-                key_sim = jaccard(a.keys, b.keys)
-                if key_sim < MIN_KEY_SIM:
-                    continue
-
-                token_sim = jaccard(a.tokens, b.tokens)
-                if token_sim < MIN_TOKEN_SIM:
-                    continue
-
-                total_sim = KEY_WEIGHT * key_sim + TOKEN_WEIGHT * token_sim
-                if total_sim < SIM_THRESHOLD:
-                    continue
-
-                neighbors_by_idx[i].append((j, total_sim, key_sim, token_sim))
-                neighbors_by_idx[j].append((i, total_sim, key_sim, token_sim))
-
-            # Ограничиваем максимум соседей на товар (TOP_K_NEIGHBORS)
-            # и собираем финальные пары
-            local_pairs = []
-
-            for i, neigh_list in neighbors_by_idx.items():
-                if TOP_K_NEIGHBORS is not None and len(neigh_list) > TOP_K_NEIGHBORS:
-                    neigh_list.sort(key=lambda x: x[1], reverse=True)
-                    neigh_list = neigh_list[:TOP_K_NEIGHBORS]
-
-                for j, total_sim, key_sim, token_sim in neigh_list:
-                    a = prods[i]
-                    b = prods[j]
-                    a_id = a.product_id
-                    b_id = b.product_id
-
-                    if a_id == b_id:
-                        continue
-                    if a_id > b_id:
-                        a_id, b_id = b_id, a_id
-                        a_keys, b_keys = b.keys, a.keys
-                    else:
-                        a_keys, b_keys = a.keys, b.keys
-
-                    pair_key = (a_id, b_id)
-                    if pair_key in seen_pairs:
-                        continue
-                    seen_pairs.add(pair_key)
-
-                    common_keys = sorted(a_keys & b_keys)
-                    only_a_keys = sorted(a_keys - b_keys)
-                    only_b_keys = sorted(b_keys - a_keys)
-
-                    local_pairs.append(
-                        (
-                            a_id,
-                            b_id,
-                            round(float(total_sim), 4),
-                            round(float(key_sim), 4),
-                            round(float(token_sim), 4),
-                            common_keys,
-                            only_a_keys,
-                            only_b_keys,
+                        local_pairs.append(
+                            (
+                                a_id,
+                                b_id,
+                                round(float(token_sim), 4),  # similarity = token_sim
+                                round(float(key_sim), 4),    # = 1.0
+                                round(float(token_sim), 4),  # value_similarity = token_sim
+                                common_keys,
+                                only_a_keys,
+                                only_b_keys,
+                            )
                         )
-                    )
 
-            print(f"[prod_sim] bucket={bucket_name}: пар после фильтров={len(local_pairs)}")
-            rows_to_insert.extend(local_pairs)
+                bucket_pairs_count += len(local_pairs)
+                rows_to_insert.extend(local_pairs)
+
+            print(f"[prod_sim] bucket={bucket_name}: пар после фильтров={bucket_pairs_count}")
 
         # 1) Обрабатываем все семейства
         for fam_id, prods in by_family.items():
@@ -304,7 +307,7 @@ def rebuild_product_similarity():
         conn.commit()
         print(
             "[prod_sim] готово, таблица product_similarity обновлена "
-            "(кластеризация по характеристикам, жёсткие пороги)."
+            "(по характеристикам, с разбиением по ключам)."
         )
     except Exception as e:
         conn.rollback()
