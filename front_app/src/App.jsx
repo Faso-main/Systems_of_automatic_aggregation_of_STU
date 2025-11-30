@@ -861,10 +861,107 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
 
   const [selectedIds, setSelectedIds] = useState(new Set(productIds));
 
+  // глобальный поиск + фильтры по колонкам
+  const [searchText, setSearchText] = useState("");
+  const [idFilter, setIdFilter] = useState("");
+  const [nameFilter, setNameFilter] = useState("");
+  const [producerFilter, setProducerFilter] = useState("");
+  const [countryFilter, setCountryFilter] = useState("");
+  const [specsFilter, setSpecsFilter] = useState("");
+
   useEffect(() => {
     // при смене категории или списка товаров — пересобираем выбор
     setSelectedIds(new Set(productIds));
+    // обнуляем фильтры при открытии другой категории
+    setSearchText("");
+    setIdFilter("");
+    setNameFilter("");
+    setProducerFilter("");
+    setCountryFilter("");
+    setSpecsFilter("");
   }, [categoryId, productIds]);
+
+  // применяем фильтры (как Excel — по каждому столбцу)
+  const filteredProducts = useMemo(() => {
+    let list = products || [];
+    if (!list.length) return [];
+
+    const q = searchText.trim().toLowerCase();
+    const idQ = idFilter.trim();
+    const nameQ = nameFilter.trim().toLowerCase();
+    const prodQ = producerFilter.trim().toLowerCase();
+    const countryQ = countryFilter.trim().toLowerCase();
+    const specsQ = specsFilter.trim().toLowerCase();
+
+    return list.filter((p) => {
+      const specsText =
+        typeof p.raw_specs === "string" ? p.raw_specs.toLowerCase() : "";
+
+      // глобальный поиск по всем основным полям
+      if (q) {
+        const haystack = [
+          String(p.id || ""),
+          p.name || "",
+          p.producer || "",
+          p.country || "",
+          specsText || "",
+        ]
+          .join(" ")
+          .toLowerCase();
+
+        if (!haystack.includes(q)) return false;
+      }
+
+      // фильтр по ID
+      if (idQ && !String(p.id || "").includes(idQ)) return false;
+
+      // фильтр по названию
+      if (
+        nameQ &&
+        !(p.name || "")
+          .toString()
+          .toLowerCase()
+          .includes(nameQ)
+      ) {
+        return false;
+      }
+
+      // фильтр по производителю
+      if (
+        prodQ &&
+        !(p.producer || "")
+          .toString()
+          .toLowerCase()
+          .includes(prodQ)
+      ) {
+        return false;
+      }
+
+      // фильтр по стране
+      if (
+        countryQ &&
+        !(p.country || "")
+          .toString()
+          .toLowerCase()
+          .includes(countryQ)
+      ) {
+        return false;
+      }
+
+      // фильтр по характеристикам
+      if (specsQ && !specsText.includes(specsQ)) return false;
+
+      return true;
+    });
+  }, [
+    products,
+    searchText,
+    idFilter,
+    nameFilter,
+    producerFilter,
+    countryFilter,
+    specsFilter,
+  ]);
 
   const toggleOne = (pid, checked) => {
     setSelectedIds((prev) => {
@@ -875,15 +972,23 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
     });
   };
 
-  const allChecked =
-    products.length > 0 && products.every((p) => selectedIds.has(p.id));
+  // "выделить всё" — только по видимым (отфильтрованным) строкам
+  const allVisibleChecked =
+    filteredProducts.length > 0 &&
+    filteredProducts.every((p) => selectedIds.has(p.id));
 
   const toggleAll = (checked) => {
-    if (!checked) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(products.map((p) => p.id)));
-    }
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        // добавить все видимые
+        filteredProducts.forEach((p) => next.add(p.id));
+      } else {
+        // убрать все видимые
+        filteredProducts.forEach((p) => next.delete(p.id));
+      }
+      return next;
+    });
   };
 
   const handleRegenerateClick = async () => {
@@ -936,6 +1041,25 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
             <p>По указанным ID товаров в БД ничего не найдено.</p>
           ) : (
             <>
+              {/* Глобальный поиск по таблице */}
+              <div className="modal-filters">
+                <div className="modal-filters-main">
+                  <label className="modal-filters-label">
+                    Поиск по таблице (ID, наименование, производитель, страна,
+                    характеристики)
+                  </label>
+                  <input
+                    className="input modal-filters-input"
+                    placeholder="Введите текст для поиска…"
+                    value={searchText}
+                    onChange={(e) => setSearchText(e.target.value)}
+                  />
+                </div>
+                <div className="modal-filters-counter">
+                  Всего: {products.length} • По фильтру: {filteredProducts.length}
+                </div>
+              </div>
+
               <div className="products-table-wrapper">
                 <table className="products-table">
                   <thead>
@@ -943,7 +1067,9 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
                       <th className="products-col-checkbox">
                         <input
                           type="checkbox"
-                          checked={allChecked}
+                          checked={
+                            filteredProducts.length > 0 && allVisibleChecked
+                          }
                           onChange={(e) => toggleAll(e.target.checked)}
                         />
                       </th>
@@ -953,70 +1079,122 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
                       <th>Страна</th>
                       <th>Характеристики</th>
                     </tr>
+                    {/* Вторая строка заголовка с фильтрами по колонкам */}
+                    <tr className="products-filter-row">
+                      <th />
+                      <th>
+                        <input
+                          className="products-filter-input"
+                          placeholder="Фильтр ID"
+                          value={idFilter}
+                          onChange={(e) => setIdFilter(e.target.value)}
+                        />
+                      </th>
+                      <th>
+                        <input
+                          className="products-filter-input"
+                          placeholder="Фильтр по названию"
+                          value={nameFilter}
+                          onChange={(e) => setNameFilter(e.target.value)}
+                        />
+                      </th>
+                      <th>
+                        <input
+                          className="products-filter-input"
+                          placeholder="Фильтр по производителю"
+                          value={producerFilter}
+                          onChange={(e) => setProducerFilter(e.target.value)}
+                        />
+                      </th>
+                      <th>
+                        <input
+                          className="products-filter-input"
+                          placeholder="Фильтр по стране"
+                          value={countryFilter}
+                          onChange={(e) => setCountryFilter(e.target.value)}
+                        />
+                      </th>
+                      <th>
+                        <input
+                          className="products-filter-input"
+                          placeholder="Фильтр по характеристикам"
+                          value={specsFilter}
+                          onChange={(e) => setSpecsFilter(e.target.value)}
+                        />
+                      </th>
+                    </tr>
                   </thead>
                   <tbody>
-                    {products.map((p) => {
-                      const specsText =
-                        typeof p.raw_specs === "string" ? p.raw_specs : "";
-                      const specsLines = specsText
-                        ? specsText
-                            .split(";")
-                            .map((s) => s.trim())
-                            .filter(Boolean)
-                        : [];
+                    {filteredProducts.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="table-empty">
+                          Нет товаров, подходящих под фильтр
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredProducts.map((p) => {
+                        const specsText =
+                          typeof p.raw_specs === "string" ? p.raw_specs : "";
+                        const specsLines = specsText
+                          ? specsText
+                              .split(";")
+                              .map((s) => s.trim())
+                              .filter(Boolean)
+                          : [];
 
-                      const untrained = p.is_used_for_training === false;
+                        const untrained = p.is_used_for_training === false;
 
-                      return (
-                        <tr
-                          key={p.id}
-                          className={
-                            untrained
-                              ? "product-row product-row--untrained"
-                              : "product-row"
-                          }
-                        >
-                          <td className="products-col-checkbox">
-                            <input
-                              type="checkbox"
-                              checked={selectedIds.has(p.id)}
-                              onChange={(e) =>
-                                toggleOne(p.id, e.target.checked)
-                              }
-                            />
-                          </td>
-                          <td className="products-col-id">{p.id}</td>
-                          <td className="products-col-name">
-                            {p.name || "—"}
-                            {untrained && (
-                              <span className="product-tag-untrained">
-                                не использован в обучении
-                              </span>
-                            )}
-                          </td>
-                          <td className="products-col-producer">
-                            {p.producer || "—"}
-                          </td>
-                          <td className="products-col-country">
-                            {p.country || "—"}
-                          </td>
-                          <td className="products-col-specs">
-                            {specsLines.length === 0 ? (
-                              <span>—</span>
-                            ) : (
-                              specsLines.map((line, idx) => (
-                                <div
-                                  key={idx}
-                                  className="products-spec-line"
-                                >
-                                  {line}
-                                </div>
-                              ))
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                        return (
+                          <tr
+                            key={p.id}
+                            className={
+                              untrained
+                                ? "product-row product-row--untrained"
+                                : "product-row"
+                            }
+                          >
+                            <td className="products-col-checkbox">
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.has(p.id)}
+                                onChange={(e) =>
+                                  toggleOne(p.id, e.target.checked)
+                                }
+                              />
+                            </td>
+                            <td className="products-col-id">{p.id}</td>
+                            <td className="products-col-name">
+                              {p.name || "—"}
+                              {untrained && (
+                                <span className="product-tag-untrained">
+                                  не использован в обучении
+                                </span>
+                              )}
+                            </td>
+                            <td className="products-col-producer">
+                              {p.producer || "—"}
+                            </td>
+                            <td className="products-col-country">
+                              {p.country || "—"}
+                            </td>
+                            <td className="products-col-specs">
+                              {specsLines.length === 0 ? (
+                                <span>—</span>
+                              ) : (
+                                specsLines.map((line, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="products-spec-line"
+                                  >
+                                    {line}
+                                  </div>
+                                ))
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1040,5 +1218,6 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
     </div>
   );
 }
+
 
 export default App;

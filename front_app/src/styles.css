@@ -1048,3 +1048,56 @@ body {
   font-size: 12px;
   color: #555;
 }
+
+/* ====== ФИЛЬТРЫ В МОДАЛКЕ СО СТЕ ====== */
+
+.modal-filters {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.modal-filters-main {
+  flex: 1;
+}
+
+.modal-filters-label {
+  display: block;
+  font-size: 11px;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+.modal-filters-input {
+  font-size: 12px;
+}
+
+/* строка с фильтрами под заголовком таблицы (как в Excel) */
+.products-filter-row {
+  background: #f9fafb;
+}
+
+.products-filter-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 11px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  outline: none;
+  background: #ffffff;
+}
+
+.products-filter-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.2);
+}
+
+/* небольшой счётчик справа от поисковой строки */
+.modal-filters-counter {
+  font-size: 12px;
+  color: #6b7280;
+  white-space: nowrap;
+}
