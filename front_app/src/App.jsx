@@ -725,12 +725,42 @@ function CategoryCard({
               onChange={(v) => onRatingChange?.(id, v)}
             />
           </div>
+
+          {/* ─── НОВЫЙ БЛОК: Управление статусом ─────────────────────────────────────── */}
+          <div className="card-status-toggle">
+            <span className="status-toggle-label">Статус:</span>
+
+            <button
+              type="button"
+              className={
+                "status-toggle-btn" +
+                (status === "approved" ? " status-toggle-btn--active" : "")
+              }
+              onClick={() => onUpdateCategory?.(id, { status: "approved" })}
+            >
+              Одобрено
+            </button>
+
+            <button
+              type="button"
+              className={
+                "status-toggle-btn" +
+                (status === "rejected" ? " status-toggle-btn--active" : "")
+              }
+              onClick={() => onUpdateCategory?.(id, { status: "rejected" })}
+            >
+              Не одобрено
+            </button>
+          </div>
+          {/* ─────────────────────────────────────────────────────────────────────────── */}
+
           <div className="card-actions">
             {hasNewItems && (
               <div className="card-new-items-info">
                 Новые товары в категории: {newItemsCount ?? 0}
               </div>
             )}
+
             <button
               className="btn btn-ghost btn-small"
               type="button"
@@ -739,6 +769,7 @@ function CategoryCard({
             >
               {saving ? "Сохранение..." : "Сохранить изменения"}
             </button>
+
             <button
               type="button"
               className="btn btn-ghost btn-small"
@@ -747,6 +778,7 @@ function CategoryCard({
             >
               Показать все СТЕ
             </button>
+
             <button
               className="btn btn-primary"
               onClick={() => onRegenerate?.(id)}
@@ -757,6 +789,7 @@ function CategoryCard({
             </button>
           </div>
         </div>
+
       </div>
 
       <div className="card-body">

@@ -986,3 +986,35 @@ body {
   font-size: 10px;
   text-transform: uppercase;
 }
+
+.card-status-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+.status-toggle-label {
+  font-size: 12px;
+  color: #666;
+}
+
+.status-toggle-btn {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #ccc;
+  background: #f7f7f7;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.status-toggle-btn--active {
+  background: #1d8348;
+  border-color: #1d8348;
+  color: #fff;
+}
+
+.status-toggle-btn:not(.status-toggle-btn--active):hover {
+  background: #eee;
+}
