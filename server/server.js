@@ -387,27 +387,27 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
     }
 
     const runtimeData = await runtimeResp.json();
-    const shortDescription = runtimeData.short_description || '';
+    // const shortDescription = runtimeData.short_description || ''; // больше не используем
     const features = Array.isArray(runtimeData.features)
       ? runtimeData.features
       : [];
 
     // 5. Обновляем БД в транзакции:
-    //    - обновляем описание и служебные флаги категории,
+    //    - обновляем только служебные флаги и время,
     //    - пересоздаём записи в category_feature.
     await client.query('BEGIN');
 
+    // !!! ВАЖНО: НЕ трогаем short_description
     await client.query(
       `
       UPDATE product_category
       SET
-        short_description = $1,
         generated_at      = NOW(),
         has_new_items     = FALSE,
         new_items_count   = 0
-      WHERE id = $2;
+      WHERE id = $1;
       `,
-      [shortDescription, id]
+      [id]
     );
 
     // удаляем старые характеристики
