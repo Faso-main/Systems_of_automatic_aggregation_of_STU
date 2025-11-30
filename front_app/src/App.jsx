@@ -78,65 +78,61 @@ function App() {
   );
 
   // Фильтрация по локальным условиям + учёт результатов умного поиска
-    const filteredCategories = useMemo(() => {
-      // сначала как раньше — просто фильтруем
-      const base = categories.filter((cat) => {
-        // 1) если умный поиск вернул какие-то ID — показываем только их
-        if (smartResultIds.length > 0 && !smartResultIds.includes(cat.id)) {
-          return false;
-        }
-
-        // 2) обычный текстовый фильтр по name/description (работает, когда smartResultIds пустой)
-        if (
-          smartResultIds.length === 0 &&
-          search &&
-          !`${cat.name} ${cat.description || ""}`
-            .toLowerCase()
-            .includes(search.toLowerCase())
-        ) {
-          return false;
-        }
-
-        if (filterId && !String(cat.id).includes(filterId.trim())) return false;
-
-        if (filterStatus !== "all") {
-          if (filterStatus === "pending") {
-            if (cat.status === "approved" || cat.status === "rejected") {
-              return false;
-            }
-          } else if (cat.status !== filterStatus) {
-            return false;
-          }
-        }
-
-        const dateField = cat.createdAt || cat.generatedAt;
-        if (dateFrom && dateField) {
-          if (new Date(dateField) < new Date(dateFrom)) return false;
-        }
-        if (dateTo && dateField) {
-          if (new Date(dateField) > new Date(dateTo)) return false;
-        }
-
-        return true;
-      });
-
-      // Если умный поиск активен — порядок НЕ меняем (всё как раньше)
-      if (smartResultIds.length > 0) {
-        return base;
+  const filteredCategories = useMemo(() => {
+    // сначала как раньше — просто фильтруем
+    const base = categories.filter((cat) => {
+      // 1) если умный поиск вернул какие-то ID — показываем только их
+      if (smartResultIds.length > 0 && !smartResultIds.includes(cat.id)) {
+        return false;
       }
 
-      // Если умный поиск не активен — поднимаем жёлтые категории наверх
-      const sorted = [...base].sort((a, b) => {
-        const aFlag = a.hasUntrainedItems ? 1 : 0;
-        const bFlag = b.hasUntrainedItems ? 1 : 0;
-        // хотим: hasUntrainedItems = true → выше
-        if (aFlag === bFlag) return 0;
-        return bFlag - aFlag; // b=1,a=0 → b выше, но мы сортируем так, что aFlag<bFlag => положительное → b после a? давай наоборот:
-      });
+      // 2) обычный текстовый фильтр по name/description (работает, когда smartResultIds пустой)
+      if (
+        smartResultIds.length === 0 &&
+        search &&
+        !`${cat.name} ${cat.description || ""}`
+          .toLowerCase()
+          .includes(search.toLowerCase())
+      ) {
+        return false;
+      }
 
-      return sorted;
-    }, [categories, search, filterId, filterStatus, dateFrom, dateTo, smartResultIds]);
+      if (filterId && !String(cat.id).includes(filterId.trim())) return false;
 
+      if (filterStatus !== "all") {
+        if (filterStatus === "pending") {
+          if (cat.status === "approved" || cat.status === "rejected") {
+            return false;
+          }
+        } else if (cat.status !== filterStatus) {
+          return false;
+        }
+      }
+
+      const dateField = cat.createdAt || cat.generatedAt;
+      if (dateFrom && dateField) {
+        if (new Date(dateField) < new Date(dateFrom)) return false;
+      }
+      if (dateTo && dateField) {
+        if (new Date(dateField) > new Date(dateTo)) return false;
+      }
+
+      return true;
+    });
+
+    // Если умный поиск активен — порядок НЕ меняем (всё как раньше)
+    if (smartResultIds.length > 0) {
+      return base;
+    }
+
+    // Если умный поиск не активен — поднимаем жёлтые категории наверх
+    const sorted = [...base].sort((a, b) => {
+      if (a.hasUntrainedItems === b.hasUntrainedItems) return 0;
+      return a.hasUntrainedItems ? -1 : 1;
+    });
+
+    return sorted;
+  }, [categories, search, filterId, filterStatus, dateFrom, dateTo, smartResultIds]);
 
   const totalPages = useMemo(
     () =>
@@ -154,8 +150,7 @@ function App() {
   const totalCount = categories.length;
   const filteredCount = filteredCategories.length;
 
-  const handleRegenerate = async (id) => {
-    // помечаем категорию как "в процессе перегенерации"
+  const handleRegenerate = async (id, productIds) => {
     setRegeneratingIds((prev) => {
       const next = new Set(prev);
       next.add(id);
@@ -163,16 +158,28 @@ function App() {
     });
 
     try {
+      const payload =
+        Array.isArray(productIds) && productIds.length > 0
+          ? { product_ids: productIds }
+          : {};
+
       const resp = await fetch(`${API_BASE}/api/categories/${id}/regenerate`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
+
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status}`);
       }
 
-      alert(`Категория ID ${id} отправлена на перегенерацию`);
+      alert(
+        productIds && productIds.length
+          ? `Категория ID ${id} отправлена на перегенерацию (товаров: ${productIds.length})`
+          : `Категория ID ${id} отправлена на перегенерацию (все товары)`
+      );
 
-      // подтягиваем свежую категорию и обновляем state
+      // подтягиваем свежую категорию
       const catResp = await fetch(`${API_BASE}/api/categories/${id}`);
       if (catResp.ok) {
         const { category } = await catResp.json();
@@ -184,7 +191,6 @@ function App() {
       console.error("Ошибка перегенерации", e);
       alert("Не удалось отправить запрос на перегенерацию");
     } finally {
-      // снимаем флаг "перегенерации" с категории
       setRegeneratingIds((prev) => {
         const next = new Set(prev);
         next.delete(id);
@@ -618,7 +624,11 @@ function App() {
       </main>
 
       {productsModal && (
-        <ProductsModal data={productsModal} onClose={handleCloseProductsModal} />
+        <ProductsModal
+          data={productsModal}
+          onClose={handleCloseProductsModal}
+          onRegenerateSelected={handleRegenerate}
+        />
       )}
     </div>
   );
@@ -726,7 +736,7 @@ function CategoryCard({
             />
           </div>
 
-          {/* ─── НОВЫЙ БЛОК: Управление статусом ─────────────────────────────────────── */}
+          {/* Управление статусом */}
           <div className="card-status-toggle">
             <span className="status-toggle-label">Статус:</span>
 
@@ -752,7 +762,6 @@ function CategoryCard({
               Не одобрено
             </button>
           </div>
-          {/* ─────────────────────────────────────────────────────────────────────────── */}
 
           <div className="card-actions">
             {hasNewItems && (
@@ -789,7 +798,6 @@ function CategoryCard({
             </button>
           </div>
         </div>
-
       </div>
 
       <div className="card-body">
@@ -840,9 +848,63 @@ function CategoryCard({
   );
 }
 
-function ProductsModal({ data, onClose }) {
+function ProductsModal({ data, onClose, onRegenerateSelected }) {
+  // всегда вызываем хуки, даже если data = null
+  const {
+    id: categoryId,
+    name,
+    productIds = [],
+    products = [],
+    loading,
+    error,
+  } = data || {};
+
+  const [selectedIds, setSelectedIds] = useState(new Set(productIds));
+
+  useEffect(() => {
+    // при смене категории или списка товаров — пересобираем выбор
+    setSelectedIds(new Set(productIds));
+  }, [categoryId, productIds]);
+
+  const toggleOne = (pid, checked) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(pid);
+      else next.delete(pid);
+      return next;
+    });
+  };
+
+  const allChecked =
+    products.length > 0 && products.every((p) => selectedIds.has(p.id));
+
+  const toggleAll = (checked) => {
+    if (!checked) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(products.map((p) => p.id)));
+    }
+  };
+
+  const handleRegenerateClick = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) {
+      if (
+        !window.confirm(
+          "Вы не выбрали ни одного товара. Перегенерировать по ВСЕМ товарам категории?"
+        )
+      ) {
+        return;
+      }
+      await onRegenerateSelected?.(categoryId); // без списка → все товары
+    } else {
+      await onRegenerateSelected?.(categoryId, ids);
+    }
+    onClose();
+  };
+
+  // уже после хуков можно спокойно выйти, если data нет
   if (!data) return null;
-  const { name, productIds = [], products = [], loading, error } = data;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -873,66 +935,105 @@ function ProductsModal({ data, onClose }) {
           ) : products.length === 0 ? (
             <p>По указанным ID товаров в БД ничего не найдено.</p>
           ) : (
-            <div className="products-table-wrapper">
-              <table className="products-table">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Наименование</th>
-                    <th>Производитель</th>
-                    <th>Страна</th>
-                    <th>Характеристики</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {products.map((p) => {
-                    const specsText =
-                      typeof p.raw_specs === "string" ? p.raw_specs : "";
-                    const specsLines = specsText
-                      ? specsText
-                          .split(";")
-                          .map((s) => s.trim())
-                          .filter(Boolean)
-                      : [];
+            <>
+              <div className="products-table-wrapper">
+                <table className="products-table">
+                  <thead>
+                    <tr>
+                      <th className="products-col-checkbox">
+                        <input
+                          type="checkbox"
+                          checked={allChecked}
+                          onChange={(e) => toggleAll(e.target.checked)}
+                        />
+                      </th>
+                      <th>ID</th>
+                      <th>Наименование</th>
+                      <th>Производитель</th>
+                      <th>Страна</th>
+                      <th>Характеристики</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {products.map((p) => {
+                      const specsText =
+                        typeof p.raw_specs === "string" ? p.raw_specs : "";
+                      const specsLines = specsText
+                        ? specsText
+                            .split(";")
+                            .map((s) => s.trim())
+                            .filter(Boolean)
+                        : [];
 
-                    const untrained = p.is_used_for_training === false;
+                      const untrained = p.is_used_for_training === false;
 
-                    return (
-                      <tr
-                        key={p.id}
-                        className={
-                          untrained ? "product-row product-row--untrained" : "product-row"
-                        }
-                      >
-                        <td className="products-col-id">{p.id}</td>
-                        <td className="products-col-name">
-                          {p.name || "—"}
-                          {untrained && (
-                            <span className="product-tag-untrained">
-                              не использован в обучении
-                            </span>
-                          )}
-                        </td>
-                        <td className="products-col-producer">{p.producer || "—"}</td>
-                        <td className="products-col-country">{p.country || "—"}</td>
-                        <td className="products-col-specs">
-                          {specsLines.length === 0 ? (
-                            <span>—</span>
-                          ) : (
-                            specsLines.map((line, idx) => (
-                              <div key={idx} className="products-spec-line">
-                                {line}
-                              </div>
-                            ))
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                      return (
+                        <tr
+                          key={p.id}
+                          className={
+                            untrained
+                              ? "product-row product-row--untrained"
+                              : "product-row"
+                          }
+                        >
+                          <td className="products-col-checkbox">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(p.id)}
+                              onChange={(e) =>
+                                toggleOne(p.id, e.target.checked)
+                              }
+                            />
+                          </td>
+                          <td className="products-col-id">{p.id}</td>
+                          <td className="products-col-name">
+                            {p.name || "—"}
+                            {untrained && (
+                              <span className="product-tag-untrained">
+                                не использован в обучении
+                              </span>
+                            )}
+                          </td>
+                          <td className="products-col-producer">
+                            {p.producer || "—"}
+                          </td>
+                          <td className="products-col-country">
+                            {p.country || "—"}
+                          </td>
+                          <td className="products-col-specs">
+                            {specsLines.length === 0 ? (
+                              <span>—</span>
+                            ) : (
+                              specsLines.map((line, idx) => (
+                                <div
+                                  key={idx}
+                                  className="products-spec-line"
+                                >
+                                  {line}
+                                </div>
+                              ))
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
 
-                </tbody>
-              </table>
-            </div>
+              <div className="modal-footer">
+                <div className="modal-footer-info">
+                  Выбрано товаров: {selectedIds.size} из {products.length}
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleRegenerateClick}
+                >
+                  Перегенерировать по выбранным
+                </button>
+              </div>
+            </>
           )}
         </div>
       </div>

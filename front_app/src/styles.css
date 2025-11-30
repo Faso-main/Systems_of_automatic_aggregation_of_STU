@@ -856,7 +856,6 @@ body {
   margin-bottom: 0;
 }
 
-
 /* ====== ГЛОБАЛЬНЫЙ ПОИСК В ШАПКЕ ====== */
 
 .toolbar-right {
@@ -956,8 +955,12 @@ body {
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Категория, где есть СТЕ, не использованные для обучения */
@@ -986,6 +989,8 @@ body {
   font-size: 10px;
   text-transform: uppercase;
 }
+
+/* Переключатель статуса в карточке */
 
 .card-status-toggle {
   display: flex;
@@ -1017,4 +1022,29 @@ body {
 
 .status-toggle-btn:not(.status-toggle-btn--active):hover {
   background: #eee;
+}
+
+/* Чекбоксы и футер модалки */
+
+.products-col-checkbox {
+  width: 32px;
+  text-align: center;
+}
+
+.products-table input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.modal-footer {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-footer-info {
+  font-size: 12px;
+  color: #555;
 }

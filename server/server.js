@@ -324,6 +324,7 @@ app.patch('/api/categories/:id', async (req, res) => {
 });
 
 // Перегенерация категории через Python LLM-рантайм
+// Перегенерация категории через Python LLM-рантайм
 app.post('/api/categories/:id/regenerate', async (req, res) => {
   const client = await pool.connect();
 
@@ -333,6 +334,8 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
       client.release();
       return res.status(400).json({ error: 'Некорректный ID категории' });
     }
+
+    const { product_ids } = req.body || {};
 
     // 1. Получаем категорию (название) + список id СТЕ
     const catQuery = `
@@ -360,26 +363,57 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
 
     const catRow = mapCategoryRow(catResult.rows[0]);
     const categoryName = catRow.name;
-    const productIds = catRow.productIds || [];
 
-    // 2. Загружаем все товары по этой категории
-    const prodResult = await client.query(
-      `
-      SELECT id, name, producer, country, raw_specs
-      FROM product
-      WHERE category_id = $1
-      ORDER BY id;
-      `,
-      [id]
-    );
+    // 2. Загружаем товары: либо все, либо только выбранные
+    let prodResult;
+    let usedProductIds = [];
+
+    if (Array.isArray(product_ids) && product_ids.length > 0) {
+      const cleanIds = [
+        ...new Set(
+          product_ids
+            .map((x) => Number(x))
+            .filter((x) => Number.isInteger(x))
+        ),
+      ];
+
+      if (cleanIds.length === 0) {
+        client.release();
+        return res.status(400).json({ error: 'Некорректные product_ids' });
+      }
+
+      prodResult = await client.query(
+        `
+        SELECT id, name, producer, country, raw_specs, is_used_for_training
+        FROM product
+        WHERE category_id = $1
+          AND id = ANY($2::bigint[])
+        ORDER BY id;
+        `,
+        [id, cleanIds]
+      );
+    } else {
+      // старое поведение: все товары категории
+      prodResult = await client.query(
+        `
+        SELECT id, name, producer, country, raw_specs, is_used_for_training
+        FROM product
+        WHERE category_id = $1
+        ORDER BY id;
+        `,
+        [id]
+      );
+    }
 
     const products = prodResult.rows;
     if (products.length === 0) {
       client.release();
       return res.status(400).json({
-        error: 'У категории нет СТЕ — нечего перегенерировать',
+        error: 'Нет товаров для перегенерации (проверьте выбор)',
       });
     }
+
+    usedProductIds = products.map((p) => p.id);
 
     // 3. Оформляем СТЕ так, как ждёт runtime_llm_itr3
     const items = products.map((p) => buildItemForRuntime(p, categoryName));
@@ -411,24 +445,23 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
     }
 
     const runtimeData = await runtimeResp.json();
-    // const shortDescription = runtimeData.short_description || ''; // больше не используем
     const features = Array.isArray(runtimeData.features)
       ? runtimeData.features
       : [];
 
     // 5. Обновляем БД в транзакции:
-    //    - обновляем только служебные флаги и время,
-    //    - пересоздаём записи в category_feature.
+    //    - обновляем служебные флаги категории,
+    //    - пересоздаём записи в category_feature,
+    //    - помечаем использованные товары как "is_used_for_training = true".
     await client.query('BEGIN');
 
-    // !!! ВАЖНО: НЕ трогаем short_description
     await client.query(
       `
       UPDATE product_category
       SET
-        generated_at      = NOW(),
-        has_new_items     = FALSE,
-        new_items_count   = 0
+        generated_at    = NOW(),
+        has_new_items   = FALSE,
+        new_items_count = 0
       WHERE id = $1;
       `,
       [id]
@@ -458,10 +491,23 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
       }
     }
 
+    // помечаем товары, участвовавшие в генерации, как использованные для обучения
+    if (usedProductIds.length > 0) {
+      await client.query(
+        `
+        UPDATE product
+        SET
+          is_used_for_training = TRUE,
+          training_used_at     = COALESCE(training_used_at, NOW())
+        WHERE id = ANY($1::bigint[]);
+        `,
+        [usedProductIds]
+      );
+    }
+
     await client.query('COMMIT');
     client.release();
 
-    // Можно вернуть просто ok, фронт при желании может дернуть GET /api/categories/:id
     res.json({ ok: true });
   } catch (err) {
     console.error('Ошибка POST /api/categories/:id/regenerate:', err);
@@ -474,6 +520,7 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
     res.status(500).json({ error: 'Не удалось перегенерировать категорию' });
   }
 });
+
 
 // ===============================
 // Получить товары по списку id СТЕ
