@@ -508,7 +508,6 @@ body {
   display: flex;
   flex-wrap: wrap; /* кнопки переносятся, а не выезжают */
   gap: 8px;
-  justify-content: flex-end;
   max-width: 320px; /* чтобы они не распирали панель */
 }
 
