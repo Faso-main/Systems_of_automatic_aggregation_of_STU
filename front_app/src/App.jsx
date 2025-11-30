@@ -139,15 +139,27 @@ function App() {
 
   const handleRegenerate = async (id) => {
     try {
-      await fetch(`${API_BASE}/api/categories/${id}/regenerate`, {
+      const resp = await fetch(`${API_BASE}/api/categories/${id}/regenerate`, {
         method: "POST",
       });
-      alert(`Перегенерация категории ID ${id} (пока заглушка на бэке)`);
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}`);
+      }
+
+      alert(`Категория ID ${id} отправлена на перегенерацию`);
+
+      // при желании можно тут же подтянуть свежую категорию и обновить state:
+      const catResp = await fetch(`${API_BASE}/api/categories/${id}`);
+      const { category } = await catResp.json();
+      setCategories((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, ...category } : c))
+      );
     } catch (e) {
       console.error("Ошибка перегенерации", e);
       alert("Не удалось отправить запрос на перегенерацию");
     }
   };
+
 
   const handleRatingChange = async (id, rating) => {
     setCategories((prev) =>

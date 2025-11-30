@@ -15,6 +15,10 @@ from transformers import AutoTokenizer, AutoModel
 import json
 import re
 
+from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import Any
+
 
 NORMALIZATION_MAP = {
     "индекс скорости и нагрузки": "Индекс нагрузки/скорости",
@@ -306,29 +310,109 @@ class RuntimeCharacteristicsExtractor:
         return final
 
 
-if __name__ == "__main__":
-    extractor = RuntimeCharacteristicsExtractor(
-        safetensors_path="trained_models/characteristics_model.safetensors",
-        label_map_path="trained_models/label_map.json",
-        threshold=0.5,
-        min_keys=3,
+# ==========================
+#   FASTAPI-СЕРВИС ДЛЯ РАНТАЙМА
+# ==========================
+
+app = FastAPI(title="TH3 Runtime LLM ITR3")
+
+# Инициализируем один экземпляр экстрактора при старте
+extractor = RuntimeCharacteristicsExtractor(
+    safetensors_path="trained_models/characteristics_model.safetensors",
+    label_map_path="trained_models/label_map.json",
+    threshold=0.5,
+    min_keys=3,
+)
+
+
+class RegenerateCategoryRequest(BaseModel):
+    category_id: str | int
+    category_name: str
+    # items — гибкий словарь: название_сте, производитель, страна_происхождения,
+    # название_категории, spec1..specN
+    items: list[dict[str, Any]]
+
+
+class Feature(BaseModel):
+    key: str
+    values: list[str]
+
+
+class RegenerateCategoryResponse(BaseModel):
+    short_description: str
+    features: list[Feature]
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+def aggregate_features(category_id: str, items: list[dict[str, Any]]) -> tuple[str, list[Feature]]:
+    """
+    Для всех СТЕ категории вызываем extractor.extract_for_item,
+    а затем агрегируем "Ключ: Значение" в список Feature.
+    """
+    agg: dict[str, set[str]] = {}
+
+    for item in items:
+        chars = extractor.extract_for_item(str(category_id), item)
+        for ch in chars:
+            if ":" not in ch:
+                continue
+            key, value = ch.split(":", 1)
+            key = key.strip()
+            value = value.strip()
+            if not key or not value:
+                continue
+            agg.setdefault(key, set()).add(value)
+
+    # Формируем краткое описание: несколько "Ключ: значения"
+    parts: list[str] = []
+    for key, values in agg.items():
+        vals = ", ".join(sorted(values))
+        # чуть ограничим длину одной части
+        if len(vals) > 150:
+            vals = vals[:147] + "..."
+        parts.append(f"{key}: {vals}")
+    short_description = " | ".join(parts[:15])  # не раздуваем до бесконечности
+
+    features = [
+        Feature(key=k, values=sorted(vs))
+        for k, vs in sorted(agg.items(), key=lambda kv: kv[0])
+    ]
+
+    return short_description, features
+
+
+@app.post("/regenerate-category", response_model=RegenerateCategoryResponse)
+def regenerate_category(req: RegenerateCategoryRequest):
+    """
+    Принимает одну категорию + все её СТЕ (уже оформленные как в примере:
+    название_сте, производитель, страна_происхождения, название_категории, spec1..specN)
+    и возвращает краткое описание + агрегированные характеристики.
+    """
+    if not req.items:
+        return RegenerateCategoryResponse(short_description="", features=[])
+
+    short_description, features = aggregate_features(str(req.category_id), req.items)
+    return RegenerateCategoryResponse(
+        short_description=short_description,
+        features=features,
     )
 
-    # тест на одежду
-    example_item = {
-        "название_сте": "Куртка зимняя утепленная с капюшоном, т.синий, размер 52-54",
-        "страна_происхождения": "Китай",
-        "производитель": "ООО ТекстильПром",
-        "название_категории": "Одежда специальная защитная",
-        "spec1": "Размер: 52-54; рост: 182-188",
-        "spec2": "Материал верха: полиэстер 100%; утеплитель: синтепон",
-        "spec3": "Цвет: темно-синий; Тип: куртка утепленная",
-        "spec4": "ГОСТ: ТР ТС 019/2011; класс защиты: 1",
-    }
 
-    cat_id = "999999999"
+# Локальный запуск (если нужно)
+if __name__ == "__main__":
+    import uvicorn
 
-    chars = extractor.extract_for_item(cat_id, example_item)
-    print("Характеристики для товара (одежда):")
-    for c in chars:
-        print(" •", c)
+    uvicorn.run(
+        "runtime_llm_itr3:app",
+        host="127.0.0.1",
+        port=8002,
+        reload=False,
+        workers=1,
+    )
+
+
+

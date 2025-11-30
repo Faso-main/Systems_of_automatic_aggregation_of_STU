@@ -6,6 +6,8 @@ import { Pool } from 'pg';
 const app = express();
 const PORT = 5000;
 
+const RUNTIME_LLM_URL = process.env.RUNTIME_LLM_URL || 'http://127.0.0.1:8002';
+
 app.use(
   cors({
     origin: ['https://faso312.ru', 'http://127.0.0.1:5000'],
@@ -272,38 +274,159 @@ app.patch('/api/categories/:id', async (req, res) => {
 });
 
 // Заглушка "перегенерация"
+// Перегенерация категории через Python LLM-рантайм
 app.post('/api/categories/:id/regenerate', async (req, res) => {
+  const client = await pool.connect();
+
   try {
     const id = Number(req.params.id);
     if (Number.isNaN(id)) {
+      client.release();
       return res.status(400).json({ error: 'Некорректный ID категории' });
     }
 
-    // Считаем, что после регенерации все текущие товары учтены,
-    // и "новых" больше нет.
-    const result = await pool.query(
+    // 1. Получаем категорию (название) + список id СТЕ
+    const catQuery = `
+      ${CATEGORY_SELECT}
+      WHERE c.id = $1
+      GROUP BY
+        c.id,
+        c.name,
+        c.short_description,
+        c.generated_at,
+        c.created_at,
+        c.admin_rating,
+        c.admin_status,
+        c.has_new_items,
+        c.new_items_count
+      LIMIT 1;
+    `;
+
+    const catResult = await client.query(catQuery, [id]);
+
+    if (catResult.rows.length === 0) {
+      client.release();
+      return res.status(404).json({ error: 'Категория не найдена' });
+    }
+
+    const catRow = mapCategoryRow(catResult.rows[0]);
+    const categoryName = catRow.name;
+    const productIds = catRow.productIds || [];
+
+    // 2. Загружаем все товары по этой категории
+    // (можно и по productIds, но так проще — "все товары категории")
+    const prodResult = await client.query(
       `
-      UPDATE product_category
-      SET
-        generated_at    = NOW(),
-        has_new_items   = FALSE,
-        new_items_count = 0
-      WHERE id = $1
-      RETURNING id
+      SELECT id, name, producer, country, raw_specs
+      FROM product
+      WHERE category_id = $1
+      ORDER BY id;
       `,
       [id]
     );
 
-    if (result.rowCount === 0) {
-      return res.status(404).json({ error: 'Категория не найдена' });
+    const products = prodResult.rows;
+    if (products.length === 0) {
+      client.release();
+      return res.status(400).json({
+        error: 'У категории нет СТЕ — нечего перегенерировать',
+      });
     }
 
+    // 3. Оформляем СТЕ так, как ждёт runtime_llm_itr3
+    const items = products.map((p) => buildItemForRuntime(p, categoryName));
+
+    // 4. Отправляем в Python-сервис
+    const runtimeResp = await fetch(
+      `${RUNTIME_LLM_URL}/regenerate-category`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category_id: id,
+          category_name: categoryName,
+          items,
+        }),
+      }
+    );
+
+    if (!runtimeResp.ok) {
+      console.error(
+        'runtime_llm_itr3 error:',
+        runtimeResp.status,
+        await runtimeResp.text()
+      );
+      client.release();
+      return res.status(502).json({
+        error: 'LLM-сервис недоступен или вернул ошибку',
+      });
+    }
+
+    const runtimeData = await runtimeResp.json();
+    const shortDescription = runtimeData.short_description || '';
+    const features = Array.isArray(runtimeData.features)
+      ? runtimeData.features
+      : [];
+
+    // 5. Обновляем БД в транзакции:
+    //    - обновляем описание и служебные флаги категории,
+    //    - пересоздаём записи в category_feature.
+    await client.query('BEGIN');
+
+    await client.query(
+      `
+      UPDATE product_category
+      SET
+        short_description = $1,
+        generated_at      = NOW(),
+        has_new_items     = FALSE,
+        new_items_count   = 0
+      WHERE id = $2;
+      `,
+      [shortDescription, id]
+    );
+
+    // удаляем старые характеристики
+    await client.query(
+      `DELETE FROM category_feature WHERE category_id = $1;`,
+      [id]
+    );
+
+    // вставляем новые
+    for (const f of features) {
+      const key = f.key;
+      const values = Array.isArray(f.values) ? f.values : [];
+      if (!key || values.length === 0) continue;
+
+      for (const value of values) {
+        if (!value) continue;
+        await client.query(
+          `
+          INSERT INTO category_feature (category_id, key, value)
+          VALUES ($1, $2, $3);
+          `,
+          [id, key, value]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    client.release();
+
+    // Можно вернуть просто ok, фронт при желании может дернуть GET /api/categories/:id
     res.json({ ok: true });
   } catch (err) {
     console.error('Ошибка POST /api/categories/:id/regenerate:', err);
+    try {
+      await client.query('ROLLBACK');
+    } catch (e) {
+      console.error('Ошибка rollback:', e);
+    }
+    client.release();
     res.status(500).json({ error: 'Не удалось перегенерировать категорию' });
   }
 });
+
 
 // ===============================
 // Получить товары по списку id СТЕ
