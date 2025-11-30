@@ -233,16 +233,6 @@ function App() {
     }
   };
 
-  const cycleStatusFilter = () => {
-    setFilterStatus((prev) => {
-      if (prev === "all") return "pending";
-      if (prev === "pending") return "approved";
-      if (prev === "approved") return "rejected";
-      return "all";
-    });
-    setCurrentPage(1);
-  };
-
   // загрузка товаров для модалки
   const fetchProductsForModal = async (categoryId, productIds) => {
     if (!productIds || productIds.length === 0) {
@@ -479,20 +469,6 @@ function App() {
                       <th>Описание</th>
                       <th>Дата генерации</th>
                       <th>Новые товары</th>
-                      <th>
-                        <div className="column-header">
-                          <span className="column-header-label">Статус</span>
-                          <div className="column-header-controls">
-                            <button
-                              className="status-filter-btn"
-                              title="Цикл по статусам"
-                              onClick={cycleStatusFilter}
-                            >
-                              ▲▼
-                            </button>
-                          </div>
-                        </div>
-                      </th>
                       <th>Оценка</th>
                     </tr>
                   </thead>

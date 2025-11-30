@@ -1211,11 +1211,3 @@ body {
   color: #374151;
   font-weight: 500;
 }
-
-th .sort-arrows,
-.status-arrows,
-.status-sort,
-th .arrow-up,
-th .arrow-down {
-  display: none !important;
-}
