@@ -10,7 +10,7 @@ const RUNTIME_LLM_URL = process.env.RUNTIME_LLM_URL || 'http://127.0.0.1:8002';
 
 app.use(
   cors({
-    origin: ['https://faso312.ru', 'http://127.0.0.1:5000'],
+    origin: ['https://faso312.ru', 'https://www.faso312.ru', 'http://127.0.0.1:5000'],
     credentials: false,
   })
 );
@@ -63,6 +63,32 @@ function mapCategoryRow(row) {
     hasNewItems,
     newItemsCount,
   };
+}
+
+// оформляем СТЕ в формат, который ждёт runtime_llm_itr3
+function buildItemForRuntime(product, categoryName) {
+  const specsText =
+    typeof product.raw_specs === 'string' ? product.raw_specs : '';
+  const specsLines = specsText
+    ? specsText
+        .split(/[;\n]/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+
+  const item = {
+    ste_id: Number(product.id),
+    'название_сте': product.name || '',
+    'производитель': product.producer || '',
+    'страна_происхождения': product.country || '',
+    'название_категории': categoryName || '',
+  };
+
+  specsLines.forEach((line, idx) => {
+    item[`spec${idx + 1}`] = line;
+  });
+
+  return item;
 }
 
 // Базовый SELECT для категорий
@@ -273,7 +299,6 @@ app.patch('/api/categories/:id', async (req, res) => {
   }
 });
 
-// Заглушка "перегенерация"
 // Перегенерация категории через Python LLM-рантайм
 app.post('/api/categories/:id/regenerate', async (req, res) => {
   const client = await pool.connect();
@@ -314,7 +339,6 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
     const productIds = catRow.productIds || [];
 
     // 2. Загружаем все товары по этой категории
-    // (можно и по productIds, но так проще — "все товары категории")
     const prodResult = await client.query(
       `
       SELECT id, name, producer, country, raw_specs
@@ -332,8 +356,6 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
         error: 'У категории нет СТЕ — нечего перегенерировать',
       });
     }
-
-    
 
     // 3. Оформляем СТЕ так, как ждёт runtime_llm_itr3
     const items = products.map((p) => buildItemForRuntime(p, categoryName));
@@ -429,7 +451,6 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
   }
 });
 
-
 // ===============================
 // Получить товары по списку id СТЕ
 // ===============================
@@ -497,7 +518,6 @@ app.get('/api/search/categories', async (req, res) => {
     res.status(500).json({ error: 'internal search error' });
   }
 });
-
 
 app.listen(PORT, () => {
   console.log(`API сервер запущен на http://localhost:${PORT}`);
