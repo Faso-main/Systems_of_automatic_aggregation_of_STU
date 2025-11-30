@@ -46,6 +46,15 @@ function App() {
   const [ratingFilterOpen, setRatingFilterOpen] = useState(false);
   const [ratingFilterValues, setRatingFilterValues] = useState(() => new Set());
 
+    // Excel-фильтр: статус
+  const [statusFilterOpen, setStatusFilterOpen] = useState(false);
+  const [statusFilterValues, setStatusFilterValues] = useState(() => new Set());
+
+  // Excel-фильтр: новые товары
+  const [newItemsFilterOpen, setNewItemsFilterOpen] = useState(false);
+  const [newItemsFilterValues, setNewItemsFilterValues] = useState(() => new Set());
+
+
   // ====== Загрузка категорий ======
   useEffect(() => {
 
@@ -93,6 +102,18 @@ function App() {
     });
     return Array.from(set).sort((a, b) => Number(a) - Number(b));
   }, [categories]);
+
+  // уникальные статусы
+  const statusOptions = useMemo(() => {
+    const set = new Set();
+    categories.forEach(cat => {
+      set.add(cat.status || "pending");
+    });
+    return Array.from(set);
+  }, [categories]);
+
+  // уникальные значения "новые товары" (true / false)
+  const newItemsOptions = ["yes", "no"];
 
   // Фильтрация по локальным условиям + учёт результатов умного поиска
   const filteredCategories = useMemo(() => {
@@ -146,6 +167,17 @@ function App() {
         );
         if (!ratingFilterValues.has(key)) return false;
       }
+      // 7) фильтр по статусу (попап-фильтр)
+      if (statusFilterValues.size > 0) {
+        const key = cat.status || "pending";
+        if (!statusFilterValues.has(key)) return false;
+      }
+
+      // 8) фильтр по новым товарам
+      if (newItemsFilterValues.size > 0) {
+        const key = cat.hasNewItems ? "yes" : "no";
+        if (!newItemsFilterValues.has(key)) return false;
+      }
 
       return true;
     });
@@ -162,16 +194,18 @@ function App() {
     });
 
     return sorted;
-  }, [
-    categories,
-    search,
-    filterId,
-    filterStatus,
-    dateFrom,
-    dateTo,
-    smartResultIds,
-    ratingFilterValues,
-  ]);
+    }, [
+      categories,
+      search,
+      filterId,
+      filterStatus,
+      dateFrom,
+      dateTo,
+      smartResultIds,
+      ratingFilterValues,
+      statusFilterValues,
+      newItemsFilterValues,
+    ]);
 
 
   const totalPages = useMemo(
@@ -508,9 +542,143 @@ function App() {
                       <th>Название категории</th>
                       <th>Описание</th>
                       <th>Дата генерации</th>
-                      <th>Новые товары</th>
-                      <th>Статус</th>
-                                            <th>
+                      <th>
+                        <div className="col-header-with-filter">
+                          <span>Новые товары</span>
+                          <button
+                            type="button"
+                            className={
+                              newItemsFilterValues.size > 0
+                                ? "col-filter-trigger col-filter-trigger--active"
+                                : "col-filter-trigger"
+                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setNewItemsFilterOpen(v => !v);
+                            }}
+                          >
+                            ▾
+                          </button>
+
+                          {newItemsFilterOpen && (
+                            <div className="col-filter-popover">
+                              <div className="col-filter-popover-header">Фильтр по новым товарам</div>
+
+                              <div className="col-filter-actions">
+                                <button
+                                  className="col-filter-link"
+                                  onClick={() => setNewItemsFilterValues(new Set(newItemsOptions))}
+                                >
+                                  Выбрать все
+                                </button>
+                                <button
+                                  className="col-filter-link"
+                                  onClick={() => setNewItemsFilterValues(new Set())}
+                                >
+                                  Сбросить
+                                </button>
+                              </div>
+
+                              <div className="col-filter-options">
+                                <label className="col-filter-option">
+                                  <input
+                                    type="checkbox"
+                                    checked={newItemsFilterValues.has("yes")}
+                                    onChange={(e) =>
+                                      setNewItemsFilterValues(prev => {
+                                        const next = new Set(prev);
+                                        if (e.target.checked) next.add("yes");
+                                        else next.delete("yes");
+                                        return next;
+                                      })
+                                    }
+                                  />
+                                  <span>Есть новые</span>
+                                </label>
+
+                                <label className="col-filter-option">
+                                  <input
+                                    type="checkbox"
+                                    checked={newItemsFilterValues.has("no")}
+                                    onChange={(e) =>
+                                      setNewItemsFilterValues(prev => {
+                                        const next = new Set(prev);
+                                        if (e.target.checked) next.add("no");
+                                        else next.delete("no");
+                                        return next;
+                                      })
+                                    }
+                                  />
+                                  <span>Нет</span>
+                                </label>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </th>
+
+                      <th>
+                        <div className="col-header-with-filter">
+                          <span>Статус</span>
+                          <button
+                            type="button"
+                            className={
+                              statusFilterValues.size > 0
+                                ? "col-filter-trigger col-filter-trigger--active"
+                                : "col-filter-trigger"
+                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setStatusFilterOpen(v => !v);
+                            }}
+                          >
+                            ▾
+                          </button>
+
+                          {statusFilterOpen && (
+                            <div className="col-filter-popover">
+                              <div className="col-filter-popover-header">Фильтр по статусу</div>
+
+                              <div className="col-filter-actions">
+                                <button
+                                  className="col-filter-link"
+                                  onClick={() => setStatusFilterValues(new Set(statusOptions))}
+                                >
+                                  Выбрать все
+                                </button>
+                                <button
+                                  className="col-filter-link"
+                                  onClick={() => setStatusFilterValues(new Set())}
+                                >
+                                  Сбросить
+                                </button>
+                              </div>
+
+                              <div className="col-filter-options">
+                                {statusOptions.map((key) => (
+                                  <label key={key} className="col-filter-option">
+                                    <input
+                                      type="checkbox"
+                                      checked={statusFilterValues.has(key)}
+                                      onChange={(e) =>
+                                        setStatusFilterValues(prev => {
+                                          const next = new Set(prev);
+                                          if (e.target.checked) next.add(key);
+                                          else next.delete(key);
+                                          return next;
+                                        })
+                                      }
+                                    />
+                                    <span>{statusLabel(key)}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </th>
+
+                      <th>
                         <div className="col-header-with-filter">
                           <span>Оценка</span>
                           <button
