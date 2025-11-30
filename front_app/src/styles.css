@@ -461,6 +461,7 @@ body {
   align-items: flex-start;
   gap: 12px;
   flex-wrap: wrap; /* разрешаем перенос внутри строки */
+  flex-direction: column;
 }
 
 .card-title-block {
