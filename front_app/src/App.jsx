@@ -3,7 +3,7 @@ import React, { useMemo, useState, useEffect, useRef } from "react";
 import "./styles.css";
 
 const API_BASE = "https://faso312.ru";
-const PAGE_SIZE = 15;
+const PAGE_SIZE = 10;
 
 const formatDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString("ru-RU") : "—";
