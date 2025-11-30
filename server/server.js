@@ -702,6 +702,147 @@ app.get('/api/categories/:id/family', async (req, res) => {
   }
 });
 
+// Семейство категории (кластер похожих категорий)
+app.get('/api/categories/:id/family', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ error: 'Некорректный ID категории' });
+    }
+
+    // Находим семейство, к которому относится категория
+    const familyRes = await pool.query(
+      `
+      SELECT
+        cf.id   AS family_id,
+        cf.name AS family_name
+      FROM category_family_member cfm
+      JOIN category_family cf ON cf.id = cfm.family_id
+      WHERE cfm.category_id = $1
+      LIMIT 1;
+      `,
+      [id]
+    );
+
+    // если категория ни в какое семейство не попала — возвращаем пустой ответ
+    if (familyRes.rows.length === 0) {
+      return res.json({
+        baseCategoryId: id,
+        family: null,
+        members: [],
+      });
+    }
+
+    const familyRow = familyRes.rows[0];
+    const familyId = Number(familyRow.family_id);
+
+    // все члены этого семейства + similarity к базовой категории (если есть в таблице category_similarity)
+    const membersRes = await pool.query(
+      `
+      SELECT
+        pc.id                  AS category_id,
+        pc.name                AS name,
+        pc.short_description   AS description,
+        cs.similarity          AS similarity,
+        cs.key_similarity      AS key_similarity,
+        cs.value_similarity    AS value_similarity
+      FROM category_family_member m
+      JOIN product_category pc
+        ON pc.id = m.category_id
+      LEFT JOIN category_similarity cs
+        ON (
+             (cs.category_id_a = $1 AND cs.category_id_b = m.category_id)
+          OR (cs.category_id_b = $1 AND cs.category_id_a = m.category_id)
+        )
+      WHERE m.family_id = $2
+      ORDER BY pc.id;
+      `,
+      [id, familyId]
+    );
+
+    const members = membersRes.rows.map((row) => {
+      const catId = Number(row.category_id);
+      const isBase = catId === id;
+
+      return {
+        categoryId: catId,
+        name: row.name,
+        description: row.description || '',
+        isBase,
+        similarity: isBase
+          ? 1.0
+          : row.similarity != null
+          ? Number(row.similarity)
+          : null,
+        keySimilarity:
+          row.key_similarity != null ? Number(row.key_similarity) : null,
+        valueSimilarity:
+          row.value_similarity != null ? Number(row.value_similarity) : null,
+      };
+    });
+
+    res.json({
+      baseCategoryId: id,
+      family: {
+        id: familyId,
+        name: familyRow.family_name,
+      },
+      members,
+    });
+  } catch (err) {
+    console.error('Ошибка /api/categories/:id/family:', err);
+    res
+      .status(500)
+      .json({ error: 'Не удалось загрузить семейство для категории' });
+  }
+});
+
+// Все семейства категорий с их членами
+app.get('/api/category-families', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      SELECT
+        cf.id   AS family_id,
+        cf.name AS family_name,
+        COALESCE(
+          JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'categoryId', pc.id,
+              'name',       pc.name,
+              'description', pc.short_description
+            )
+            ORDER BY pc.id
+          )
+          FILTER (WHERE pc.id IS NOT NULL),
+          '[]'::json
+        ) AS members
+      FROM category_family cf
+      LEFT JOIN category_family_member cfm
+        ON cfm.family_id = cf.id
+      LEFT JOIN product_category pc
+        ON pc.id = cfm.category_id
+      GROUP BY cf.id, cf.name
+      ORDER BY cf.id;
+      `
+    );
+
+    const families = result.rows.map((row) => ({
+      id: Number(row.family_id),
+      name: row.family_name,
+      members: row.members || [],
+      size: Array.isArray(row.members) ? row.members.length : 0,
+    }));
+
+    res.json({ families });
+  } catch (err) {
+    console.error('Ошибка /api/category-families:', err);
+    res
+      .status(500)
+      .json({ error: 'Не удалось загрузить семейства категорий' });
+  }
+});
+
 
 app.listen(PORT, () => {
   console.log(`API сервер запущен на http://localhost:${PORT}`);
