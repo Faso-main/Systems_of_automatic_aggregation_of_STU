@@ -222,87 +222,54 @@ function App() {
   const totalCount = categories.length;
   const filteredCount = filteredCategories.length;
 
-const handleRegenerate = async (id, productIds) => {
-  console.log("[REG] вызов handleRegenerate", {
-    id,
-    productIds,
-    length: Array.isArray(productIds) ? productIds.length : null,
-  });
-
-  setRegeneratingIds((prev) => {
-    const next = new Set(prev);
-    next.add(id);
-    return next;
-  });
-
-  try {
-    const payload =
-      Array.isArray(productIds) && productIds.length > 0
-        ? { product_ids: productIds }
-        : {};
-
-    const url = `${API_BASE}/api/categories/${id}/regenerate`;
-
-    console.log("[REG] отправляем запрос", {
-      url,
-      payload,
+  const handleRegenerate = async (id, productIds) => {
+    setRegeneratingIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
     });
 
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    console.log("[REG] ответ сервера по перегенерации", {
-      status: resp.status,
-      ok: resp.ok,
-    });
-
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => "<no body>");
-      console.error("[REG] ошибка ответа сервера", {
-        status: resp.status,
-        body: text,
-      });
-      throw new Error(`HTTP ${resp.status}`);
-    }
-
-    // здесь как раньше — подтягиваем свежую категорию
     try {
-      const catResp = await fetch(`${API_BASE}/api/categories/${id}`);
-      console.log("[REG] запрос свежей категории", {
-        url: `${API_BASE}/api/categories/${id}`,
-        status: catResp.status,
+      const payload =
+        Array.isArray(productIds) && productIds.length > 0
+          ? { product_ids: productIds }
+          : {};
+
+      const resp = await fetch(`${API_BASE}/api/categories/${id}/regenerate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
 
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}`);
+      }
+
+      alert(
+        productIds && productIds.length
+          ? `Категория ID ${id} отправлена на перегенерацию (товаров: ${productIds.length})`
+          : `Категория ID ${id} отправлена на перегенерацию (все товары)`
+      );
+
+      // подтягиваем свежую категорию
+      const catResp = await fetch(`${API_BASE}/api/categories/${id}`);
       if (catResp.ok) {
         const { category } = await catResp.json();
         setCategories((prev) =>
           prev.map((c) => (c.id === id ? { ...c, ...category } : c))
         );
-      } else {
-        const text = await catResp.text().catch(() => "<no body>");
-        console.error("[REG] не удалось обновить категорию после регена", {
-          status: catResp.status,
-          body: text,
-        });
       }
     } catch (e) {
-      console.error("[REG] ошибка при обновлении категории после регена", e);
+      console.error("Ошибка перегенерации", e);
+      alert("Не удалось отправить запрос на перегенерацию");
+    } finally {
+      setRegeneratingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
-  } catch (e) {
-    console.error("[REG] Ошибка перегенерации", e);
-    alert("Не удалось отправить запрос на перегенерацию");
-  } finally {
-    setRegeneratingIds((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  }
-};
-
+  };
 
   const handleRatingChange = async (id, rating) => {
     setCategories((prev) =>
