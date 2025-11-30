@@ -1065,23 +1065,24 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
           ) : (
             <>
               {/* Глобальный поиск по таблице */}
-              <div className="modal-filters">
-                <div className="modal-filters-main">
-                  <label className="modal-filters-label">
-                    Поиск по таблице (ID, наименование, производитель, страна,
-                    характеристики)
-                  </label>
-                  <input
-                    className="input modal-filters-input"
-                    placeholder="Введите текст для поиска…"
-                    value={searchText}
-                    onChange={(e) => setSearchText(e.target.value)}
-                  />
-                </div>
-                <div className="modal-filters-counter">
-                  Всего: {products.length} • По фильтру: {filteredProducts.length}
-                </div>
+            <div className="modal-filters">
+              <div className="modal-filters-counter modal-filters-counter--top">
+                Всего: {products.length} • По фильтру: {filteredProducts.length}
               </div>
+
+              <div className="modal-filters-main">
+                <label className="modal-filters-label">
+                  Поиск по таблице (ID, наименование, производитель, страна, характеристики)
+                </label>
+                <input
+                  className="input modal-filters-input"
+                  placeholder="Введите текст для поиска…"
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                />
+              </div>
+            </div>
+
 
               <div className="products-table-wrapper">
                 <table className="products-table">

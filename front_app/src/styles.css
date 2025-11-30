@@ -1112,26 +1112,28 @@ body {
 }
 
 .col-filter-trigger {
-  border: 1px solid transparent;
-  background: transparent;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
   cursor: pointer;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1;
-  padding: 2px 4px;
-  border-radius: 4px;
-  opacity: 0.7;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-weight: 600;
+  color: #374151;
 }
 
 .col-filter-trigger:hover {
-  border-color: #e5e7eb;
-  opacity: 1;
+  background: #e5e7eb;
+  border-color: #9ca3af;
 }
 
 .col-filter-trigger--active {
+  background: #dbeafe;
   border-color: #3b82f6;
-  background: rgba(59, 130, 246, 0.05);
-  opacity: 1;
+  color: #1e40af;
 }
+
 
 /* попап с чекбоксами */
 
@@ -1195,4 +1197,25 @@ body {
 
 .col-filter-option input {
   cursor: pointer;
+}
+
+.modal-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.modal-filters-counter--top {
+  font-size: 13px;
+  color: #374151;
+  font-weight: 500;
+}
+
+th .sort-arrows,
+.status-arrows,
+.status-sort,
+th .arrow-up,
+th .arrow-down {
+  display: none !important;
 }
