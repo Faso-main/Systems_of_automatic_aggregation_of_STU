@@ -323,8 +323,8 @@ function App() {
         </div>
         <div className="header-right">
           <div className="user-info">
-            <span className="user-label">Личный кабинет</span>
-            <span className="user-name">Администратор</span>
+            <span className="user-name">Личный кабинет</span>
+            <span className="user-label">Администратор</span>
           </div>
           <div className="user-avatar">AD</div>
         </div>
