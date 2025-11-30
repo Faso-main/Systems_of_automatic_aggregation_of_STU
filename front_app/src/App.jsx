@@ -36,6 +36,8 @@ function App() {
   // модалка с товарами
   const [productsModal, setProductsModal] = useState(null);
 
+  const [familyModal, setFamilyModal] = useState(null);
+
   // состояние для умного поиска, встроенного в фильтр
   const [smartLoading, setSmartLoading] = useState(false);
   const [smartError, setSmartError] = useState("");
@@ -337,6 +339,61 @@ const handleRegenerate = async (id, productIds) => {
       alert("Не удалось сохранить изменения категории");
     }
   };
+
+    const handleShowFamilyModal = async (category) => {
+    if (!category) return;
+
+    const id = category.id;
+    const name = category.name;
+
+    // сразу открываем модалку в режиме "загрузка"
+    setFamilyModal({
+      categoryId: id,
+      categoryName: name,
+      familyId: null,
+      familyName: "",
+      loading: true,
+      error: "",
+      members: [],
+    });
+
+    try {
+      const res = await fetch(`${API_BASE}/api/categories/${id}/family`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = await res.json();
+
+      const family = data.family || null;
+      const members = Array.isArray(data.members) ? data.members : [];
+
+      setFamilyModal({
+        categoryId: id,
+        categoryName: name,
+        familyId: family ? family.id : null,
+        familyName: family ? family.name : "",
+        loading: false,
+        error: "",
+        members,
+      });
+    } catch (e) {
+      console.error("Ошибка загрузки семейства категории", e);
+      setFamilyModal((prev) => ({
+        ...(prev || {
+          categoryId: category.id,
+          categoryName: category.name,
+        }),
+        loading: false,
+        error: "Не удалось загрузить семейство для категории",
+        members: [],
+      }));
+    }
+  };
+
+  const handleCloseFamilyModal = () => {
+    setFamilyModal(null);
+  };
+
 
   // загрузка товаров для модалки
   const fetchProductsForModal = async (categoryId, productIds) => {
@@ -910,6 +967,7 @@ const handleRegenerate = async (id, productIds) => {
               onUpdateCategory={handleCategoryUpdate}
               onShowProducts={() => handleShowProductsModal(selectedCategory)}
               isRegenerating={regeneratingIds.has(selectedCategory.id)}
+              onShowFamily={() => handleShowFamilyModal(selectedCategory)} // <- добавили
             />
           ) : (
             <div className="card-empty">
@@ -917,6 +975,7 @@ const handleRegenerate = async (id, productIds) => {
             </div>
           )}
         </section>
+
       </main>
 
       {productsModal && (
@@ -926,6 +985,11 @@ const handleRegenerate = async (id, productIds) => {
           onRegenerateSelected={handleRegenerate}
         />
       )}
+
+      {familyModal && (
+        <FamilyModal data={familyModal} onClose={handleCloseFamilyModal} />
+      )}
+
     </div>
   );
 }
@@ -958,6 +1022,7 @@ function CategoryCard({
   onUpdateCategory,
   onShowProducts,
   isRegenerating,
+  onShowFamily,
 }) {
   const {
     id,
@@ -1082,6 +1147,14 @@ function CategoryCard({
               disabled={!productIds || productIds.length === 0}
             >
               Показать все СТЕ
+            </button>
+
+            <button
+              type="button"
+              className="btn btn-ghost btn-small"
+              onClick={() => onShowFamily?.()}
+            >
+              Показать семейство
             </button>
 
             <button
@@ -1631,6 +1704,127 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
                 </div>
               </div>
             </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FamilyModal({ data, onClose }) {
+  const {
+    categoryId,
+    categoryName,
+    familyId,
+    familyName,
+    loading,
+    error,
+    members = [],
+  } = data || {};
+
+  // сортируем: базовая категория первой, потом по similarity убыв.
+  const sortedMembers = [...members].sort((a, b) => {
+    if (a.isBase && !b.isBase) return -1;
+    if (!a.isBase && b.isBase) return 1;
+    const sa = typeof a.similarity === "number" ? a.similarity : -1;
+    const sb = typeof b.similarity === "number" ? b.similarity : -1;
+    return sb - sa;
+  });
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        className="modal modal-wide"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-header">
+          <h2 className="modal-title">
+            Семейство категории: {categoryName} (ID {categoryId})
+          </h2>
+          <button
+            type="button"
+            className="btn btn-ghost btn-small"
+            onClick={onClose}
+          >
+            Закрыть
+          </button>
+        </div>
+
+        <div className="modal-body">
+          {familyId && (
+            <div className="family-meta">
+              Семейство: <span className="family-name">{familyName}</span> (ID {familyId})
+            </div>
+          )}
+
+          {loading && (
+            <div className="card-section-empty">
+              Загрузка семейства…
+            </div>
+          )}
+
+          {error && !loading && (
+            <div className="products-error">{error}</div>
+          )}
+
+          {!loading && !error && sortedMembers.length === 0 && (
+            <div className="card-section-empty">
+              Для этой категории ещё не построено семейство.
+            </div>
+          )}
+
+          {!loading && !error && sortedMembers.length > 0 && (
+            <div className="family-modal-content">
+              <table className="family-table">
+                <thead>
+                  <tr>
+                    <th>Роль</th>
+                    <th>ID категории</th>
+                    <th>Название</th>
+                    <th>Описание</th>
+                    <th>Схожесть с базовой</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedMembers.map((m) => (
+                    <tr
+                      key={m.categoryId}
+                      className={m.isBase ? "family-row family-row--base" : "family-row"}
+                    >
+                      <td>{m.isBase ? "Базовая" : "Похожая"}</td>
+                      <td>{m.categoryId}</td>
+                      <td>{m.name}</td>
+                      <td>{m.description || "—"}</td>
+                      <td>
+                        {typeof m.similarity === "number" ? (
+                          <div className="family-similarity">
+                            <div>
+                              Итог: {(m.similarity * 100).toFixed(0)}%
+                            </div>
+                            {m.keySimilarity != null && m.valueSimilarity != null && (
+                              <div className="family-similarity-sub">
+                                по структуре:{" "}
+                                {(m.keySimilarity * 100).toFixed(0)}% •
+                                по семантике:{" "}
+                                {(m.valueSimilarity * 100).toFixed(0)}%
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div className="family-hint">
+                Семейство показывает группу категорий, которые близки по
+                структуре характеристик и по семантике значений.
+                Базовая категория выделена, остальные — её «родственники».
+              </div>
+            </div>
           )}
         </div>
       </div>

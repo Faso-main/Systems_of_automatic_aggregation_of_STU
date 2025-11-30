@@ -590,6 +590,119 @@ app.get('/api/search/categories', async (req, res) => {
   }
 });
 
+// Семейство категории (кластер похожих категорий)
+app.get('/api/categories/:id/family', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ error: 'Некорректный ID категории' });
+    }
+
+    // Находим семейство, к которому относится категория
+    const familyRes = await pool.query(
+      `
+      SELECT
+        cf.id   AS family_id,
+        cf.name AS family_name
+      FROM category_family_member cfm
+      JOIN category_family cf ON cf.id = cfm.family_id
+      WHERE cfm.category_id = $1
+      LIMIT 1;
+      `,
+      [id]
+    );
+
+    if (familyRes.rows.length === 0) {
+      // Семейство не найдено — вернём пустой ответ, но не 404
+      return res.json({
+        base: { id, name: null },
+        family: null,
+        members: [],
+      });
+    }
+
+    const familyRow = familyRes.rows[0];
+    const familyId = Number(familyRow.family_id);
+
+    // Загружаем всех членов семейства +
+    // подмешиваем similarity относительно базовой категории (id)
+    const membersRes = await pool.query(
+      `
+      SELECT
+        m.category_id,
+        pc.name,
+        pc.short_description,
+        cs.similarity,
+        cs.key_similarity,
+        cs.value_similarity
+      FROM category_family_member m
+      JOIN product_category pc
+        ON pc.id = m.category_id
+      LEFT JOIN category_similarity cs
+        ON (
+             (cs.category_id_a = $1 AND cs.category_id_b = m.category_id)
+          OR (cs.category_id_b = $1 AND cs.category_id_a = m.category_id)
+        )
+      WHERE m.family_id = $2
+      ORDER BY pc.id;
+      `,
+      [id, familyId]
+    );
+
+    const members = membersRes.rows.map((row) => {
+      const catId = Number(row.category_id);
+      const isBase = catId === id;
+
+      const sim =
+        isBase
+          ? 1.0
+          : row.similarity !== null && row.similarity !== undefined
+          ? Number(row.similarity)
+          : null;
+
+      const keySim =
+        row.key_similarity !== null && row.key_similarity !== undefined
+          ? Number(row.key_similarity)
+          : null;
+
+      const valueSim =
+        row.value_similarity !== null && row.value_similarity !== undefined
+          ? Number(row.value_similarity)
+          : null;
+
+      return {
+        categoryId: catId,
+        name: row.name,
+        description: row.short_description || '',
+        similarity: sim,
+        keySimilarity: keySim,
+        valueSimilarity: valueSim,
+        isBase,
+      };
+    });
+
+    // Базовая категория — из членов семейства
+    const baseMember = members.find((m) => m.isBase) || null;
+
+    res.json({
+      base: baseMember
+        ? { id: baseMember.categoryId, name: baseMember.name }
+        : { id, name: null },
+      family: {
+        id: familyId,
+        name: familyRow.family_name,
+      },
+      members,
+    });
+  } catch (err) {
+    console.error('Ошибка /api/categories/:id/family:', err);
+    res
+      .status(500)
+      .json({ error: 'Не удалось загрузить семейство для категории' });
+  }
+});
+
+
 app.listen(PORT, () => {
   console.log(`API сервер запущен на http://localhost:${PORT}`);
 });

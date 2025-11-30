@@ -1215,3 +1215,58 @@ body {
   color: #374151;
   font-weight: 500;
 }
+
+/* ====== МОДАЛКА С СЕМЕЙСТВОМ КАТЕГОРИЙ ====== */
+
+.family-meta {
+  font-size: 12px;
+  color: #4b5563;
+  margin-bottom: 6px;
+}
+
+.family-name {
+  font-weight: 600;
+}
+
+.family-modal-content {
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.family-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.family-table th,
+.family-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+  vertical-align: top;
+}
+
+.family-table thead {
+  background: #f3f4f6;
+}
+
+.family-row--base {
+  background: #eff6ff;
+}
+
+.family-similarity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.family-similarity-sub {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.family-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #6b7280;
+}
