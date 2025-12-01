@@ -1,5 +1,11 @@
-// src/App.jsx
-import React, { useMemo, useState, useEffect, useRef } from "react";
+/* eslint-disable no-unused-vars */
+// App.jsx — обновлённый стиль, мягкий рефакторинг
+import React, {
+  useMemo,
+  useState,
+  useEffect,
+  useRef
+} from "react";
 import "./styles.css";
 
 const API_BASE = "https://faso312.ru";
@@ -8,20 +14,22 @@ const PAGE_SIZE = 10;
 const formatDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString("ru-RU") : "—";
 
-const statusLabel = (status) => {
-  if (status === "approved") return "Одобрено";
-  if (status === "rejected") return "Не одобрено";
-  return "Не обработано";
+const statusLabel = (value) => {
+  switch (value) {
+    case "approved":
+      return "Одобрено";
+    case "rejected":
+      return "Не одобрено";
+    default:
+      return "Не обработано";
+  }
 };
-
-
 
 function App() {
   const [categories, setCategories] = useState([]);
-  const [regeneratingIds, setRegeneratingIds] = useState(new Set());
-  const [selectedCategoryId, setSelectedCategoryId] = useState(null);
+  const [selectedId, setSelectedId] = useState(null);
 
-  // поле поиска в фильтре (текст, который вводит пользователь)
+  // фильтры
   const [search, setSearch] = useState("");
   const [filterId, setFilterId] = useState("");
   const [filterProductId, setFilterProductId] = useState("");
@@ -33,190 +41,164 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // модалка с товарами
-  const [productsModal, setProductsModal] = useState(null);
+  // товары модалки
+  const [productsView, setProductsView] = useState(null);
+  const [familyView, setFamilyView] = useState(null);
 
-  const [familyModal, setFamilyModal] = useState(null);
-
-  // состояние для умного поиска, встроенного в фильтр
+  // умный поиск
   const [smartLoading, setSmartLoading] = useState(false);
   const [smartError, setSmartError] = useState("");
-  const [smartResultIds, setSmartResultIds] = useState([]); // ID категорий, найденных умным поиском
-  const smartTimeoutRef = useRef(null);
+  const [smartHits, setSmartHits] = useState([]);
+  const smartTimer = useRef(null);
 
-  // фильтр по оценке (звёздам) в таблице категорий
-  const [ratingFilterOpen, setRatingFilterOpen] = useState(false);
-  const [ratingFilterValues, setRatingFilterValues] = useState(() => new Set());
+  // фильтры рейтинга / статуса / новых товаров
+  const [ratingPopup, setRatingPopup] = useState(false);
+  const [ratingFilter, setRatingFilter] = useState(() => new Set());
 
-  // Excel-фильтр: статус
-  const [statusFilterOpen, setStatusFilterOpen] = useState(false);
-  const [statusFilterValues, setStatusFilterValues] = useState(() => new Set());
+  const [statusPopup, setStatusPopup] = useState(false);
+  const [statusFilter, setStatusFilter] = useState(() => new Set());
 
-  // Excel-фильтр: новые товары
-  const [newItemsFilterOpen, setNewItemsFilterOpen] = useState(false);
-  const [newItemsFilterValues, setNewItemsFilterValues] = useState(() => new Set());
+  const [newPopup, setNewPopup] = useState(false);
+  const [newFilter, setNewFilter] = useState(() => new Set());
 
+  const [processing, setProcessing] = useState(new Set());
 
-  // ====== Загрузка категорий ======
+  // -------------------------
+  // Загрузка категорий
+  // -------------------------
   useEffect(() => {
-
-    async function loadCategories() {
+    const load = async () => {
       try {
         setLoading(true);
-        setError("");
         const res = await fetch(`${API_BASE}/api/categories`);
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-        const data = await res.json();
-        const cats = data.categories || [];
-        setCategories(cats);
-        if (cats.length > 0) {
-          setSelectedCategoryId(cats[0].id);
-        }
-      } catch (e) {
-        console.error("Ошибка загрузки категорий", e);
+        if (!res.ok) throw new Error(res.status);
+
+        const body = await res.json();
+        const list = body.categories || [];
+
+        setCategories(list);
+        if (list.length) setSelectedId(list[0].id);
+
+      } catch (err) {
+        console.error("Ошибка загрузки категорий:", err);
         setError("Не удалось загрузить категории");
       } finally {
         setLoading(false);
       }
-    }
+    };
 
-    loadCategories();
+    load();
   }, []);
 
-  // при смене фильтров сбрасываем страницу
+  // при смене фильтров — на первую страницу
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, filterId, filterProductId, dateFrom, dateTo, categories, smartResultIds, ratingFilterValues, statusFilterValues, newItemsFilterValues]);
+  }, [
+    search,
+    filterId,
+    filterProductId,
+    dateFrom,
+    dateTo,
+    categories,
+    smartHits,
+    ratingFilter,
+    statusFilter,
+    newFilter
+  ]);
 
   const selectedCategory = useMemo(
-    () => categories.find((c) => c.id === selectedCategoryId) ?? null,
-    [categories, selectedCategoryId]
+    () => categories.find((c) => c.id === selectedId) || null,
+    [categories, selectedId]
   );
 
-  // возможные значения рейтинга (кол-во звёзд) из категорий
+  // подготовка значений рейтинга для фильтра
   const ratingOptions = useMemo(() => {
-    const set = new Set();
-    categories.forEach((cat) => {
-      const r = typeof cat.rating === "number" ? cat.rating : 0;
-      set.add(String(r));
+    const s = new Set();
+    categories.forEach((c) => {
+      const r = typeof c.rating === "number" ? c.rating : 0;
+      s.add(String(r));
     });
-    return Array.from(set).sort((a, b) => Number(a) - Number(b));
+    return [...s].sort((a, b) => Number(a) - Number(b));
   }, [categories]);
 
   // уникальные статусы
   const statusOptions = useMemo(() => {
-    const set = new Set();
-    categories.forEach(cat => {
-      set.add(cat.status || "pending");
-    });
-    return Array.from(set);
+    const s = new Set();
+    categories.forEach((c) => s.add(c.status || "pending"));
+    return [...s];
   }, [categories]);
 
-  // уникальные значения "новые товары" (true / false)
-  const newItemsOptions = ["yes", "no"];
-
-  // Фильтрация по локальным условиям + учёт результатов умного поиска
+  const newOptions = ["yes", "no"];
+  // -------------------------
+  // Фильтрация категорий
+  // -------------------------
   const filteredCategories = useMemo(() => {
-    // сначала как раньше — просто фильтруем
-    const base = categories.filter((cat) => {
-      // 1) если умный поиск вернул какие-то ID — показываем только их
-      if (smartResultIds.length > 0 && !smartResultIds.includes(cat.id)) {
-        return false;
+    const base = categories.filter((c) => {
+      // если умный поиск дал конкретные совпадения — показываем только их
+      if (smartHits.length && !smartHits.includes(c.id)) return false;
+
+      // обычный поиск по тексту, когда умный не активен
+      if (!smartHits.length && search) {
+        const text = `${c.name} ${c.description || ""}`.toLowerCase();
+        if (!text.includes(search.toLowerCase())) return false;
       }
 
-      // 2) обычный текстовый фильтр по name/description (работает, когда smartResultIds пустой)
-      if (
-        smartResultIds.length === 0 &&
-        search &&
-        !`${cat.name} ${cat.description || ""}`
-          .toLowerCase()
-          .includes(search.toLowerCase())
-      ) {
-        return false;
-      }
+      if (filterId && !String(c.id).includes(filterId)) return false;
 
-      // 3) фильтр по ID
-      if (filterId && !String(cat.id).includes(filterId.trim())) {
-        return false;
-      }
-
-      // 4) фильтр по ID СТЕ (id_CTE) внутри категории
-      if (filterProductId && filterProductId.trim()) {
-        const q = filterProductId.trim();
-        const ids = Array.isArray(cat.productIds) ? cat.productIds : [];
-        const hasMatch = ids.some((pid) => String(pid || "").includes(q));
-
-        if (!hasMatch) return false;
-      }
-
-      // 5) фильтр по дате
-      const dateField = cat.createdAt || cat.generatedAt;
-      if (dateFrom && dateField) {
-        if (new Date(dateField) < new Date(dateFrom)) return false;
-      }
-      if (dateTo && dateField) {
-        if (new Date(dateField) > new Date(dateTo)) return false;
-      }
-
-      // 6) фильтр по рейтингу (звёздочкам) из шапки таблицы
-      if (ratingFilterValues.size > 0) {
-        const key = String(
-          typeof cat.rating === "number" ? cat.rating : 0
+      if (filterProductId) {
+        const ids = Array.isArray(c.productIds) ? c.productIds : [];
+        const ok = ids.some((p) =>
+          String(p || "").includes(filterProductId.trim())
         );
-        if (!ratingFilterValues.has(key)) return false;
-      }
-      // 7) фильтр по статусу (попап-фильтр)
-      if (statusFilterValues.size > 0) {
-        const key = cat.status || "pending";
-        if (!statusFilterValues.has(key)) return false;
+        if (!ok) return false;
       }
 
-      // 8) фильтр по новым товарам
-      if (newItemsFilterValues.size > 0) {
-        const key = cat.hasNewItems ? "yes" : "no";
-        if (!newItemsFilterValues.has(key)) return false;
+      const d = c.createdAt || c.generatedAt;
+      if (dateFrom && d && new Date(d) < new Date(dateFrom)) return false;
+      if (dateTo && d && new Date(d) > new Date(dateTo)) return false;
+
+      if (ratingFilter.size) {
+        const r = String(typeof c.rating === "number" ? c.rating : 0);
+        if (!ratingFilter.has(r)) return false;
+      }
+
+      if (statusFilter.size) {
+        const s = c.status || "pending";
+        if (!statusFilter.has(s)) return false;
+      }
+
+      if (newFilter.size) {
+        const flag = c.hasNewItems ? "yes" : "no";
+        if (!newFilter.has(flag)) return false;
       }
 
       return true;
     });
 
-    // Если умный поиск активен — порядок НЕ меняем (всё как раньше)
-    if (smartResultIds.length > 0) {
-      return base;
-    }
+    // если умный поиск активен — сортировку не меняем
+    if (smartHits.length) return base;
 
-    // Если умный поиск не активен — поднимаем жёлтые категории наверх
-    const sorted = [...base].sort((a, b) => {
+    // поднимаем категории с необученными товарами
+    return [...base].sort((a, b) => {
       if (a.hasUntrainedItems === b.hasUntrainedItems) return 0;
       return a.hasUntrainedItems ? -1 : 1;
     });
+  }, [
+    categories,
+    search,
+    filterId,
+    filterProductId,
+    dateFrom,
+    dateTo,
+    smartHits,
+    ratingFilter,
+    statusFilter,
+    newFilter
+  ]);
 
-    return sorted;
-    }, [
-      categories,
-      search,
-      filterId,
-      filterProductId,
-      dateFrom,
-      dateTo,
-      smartResultIds,
-      ratingFilterValues,
-      statusFilterValues,
-      newItemsFilterValues,
-    ]);
+  const totalPages = Math.max(1, Math.ceil(filteredCategories.length / PAGE_SIZE));
 
-
-  const totalPages = useMemo(
-    () =>
-      filteredCategories.length > 0
-        ? Math.ceil(filteredCategories.length / PAGE_SIZE)
-        : 1,
-    [filteredCategories.length]
-  );
-
-  const paginatedCategories = useMemo(() => {
+  const paginated = useMemo(() => {
     const start = (currentPage - 1) * PAGE_SIZE;
     return filteredCategories.slice(start, start + PAGE_SIZE);
   }, [filteredCategories, currentPage]);
@@ -224,89 +206,57 @@ function App() {
   const totalCount = categories.length;
   const filteredCount = filteredCategories.length;
 
-const handleRegenerate = async (id, productIds) => {
-  console.log("[REG] вызов handleRegenerate", {
-    id,
-    productIds,
-    length: Array.isArray(productIds) ? productIds.length : null,
-  });
+  // -------------------------
+  // Перегенерация категории
+  // -------------------------
+  const regenerateCategory = async (id, productIds) => {
+    setProcessing((old) => new Set(old).add(id));
 
-  setRegeneratingIds((prev) => {
-    const next = new Set(prev);
-    next.add(id);
-    return next;
-  });
-
-  try {
-    const payload =
-      Array.isArray(productIds) && productIds.length > 0
-        ? { product_ids: productIds }
-        : {};
-
-    const url = `${API_BASE}/api/categories/${id}/regenerate`;
-
-    console.log("[REG] отправляем запрос", {
-      url,
-      payload,
-    });
-
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    console.log("[REG] ответ сервера по перегенерации", {
-      status: resp.status,
-      ok: resp.ok,
-    });
-
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => "<no body>");
-      console.error("[REG] ошибка ответа сервера", {
-        status: resp.status,
-        body: text,
-      });
-      throw new Error(`HTTP ${resp.status}`);
-    }
-
-    // здесь как раньше — подтягиваем свежую категорию
     try {
-      const catResp = await fetch(`${API_BASE}/api/categories/${id}`);
-      console.log("[REG] запрос свежей категории", {
-        url: `${API_BASE}/api/categories/${id}`,
-        status: catResp.status,
-      });
+      const payload =
+        Array.isArray(productIds) && productIds.length
+          ? { product_ids: productIds }
+          : {};
 
-      if (catResp.ok) {
-        const { category } = await catResp.json();
-        setCategories((prev) =>
-          prev.map((c) => (c.id === id ? { ...c, ...category } : c))
-        );
-      } else {
-        const text = await catResp.text().catch(() => "<no body>");
-        console.error("[REG] не удалось обновить категорию после регена", {
-          status: catResp.status,
-          body: text,
-        });
+      const resp = await fetch(
+        `${API_BASE}/api/categories/${id}/regenerate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      if (!resp.ok) throw new Error("bad response");
+
+      // обновляем категорию после перегенерации
+      try {
+        const fresh = await fetch(`${API_BASE}/api/categories/${id}`);
+        if (fresh.ok) {
+          const { category } = await fresh.json();
+          setCategories((list) =>
+            list.map((c) => (c.id === id ? { ...c, ...category } : c))
+          );
+        }
+      } catch (err) {
+        console.warn("Не удалось обновить категорию:", err);
       }
-    } catch (e) {
-      console.error("[REG] ошибка при обновлении категории после регена", e);
+    } catch (err) {
+      console.error("Ошибка перегенерации:", err);
+      alert("Не удалось выполнить перегенерацию");
+    } finally {
+      setProcessing((old) => {
+        const next = new Set(old);
+        next.delete(id);
+        return next;
+      });
     }
-  } catch (e) {
-    console.error("[REG] Ошибка перегенерации", e);
-    alert("Не удалось отправить запрос на перегенерацию");
-  } finally {
-    setRegeneratingIds((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  }
-};
+  };
 
-
-  const handleRatingChange = async (id, rating) => {
+  // -------------------------
+  // Изменение рейтинга
+  // -------------------------
+  const updateRating = async (id, rating) => {
     setCategories((prev) =>
       prev.map((c) => (c.id === id ? { ...c, rating } : c))
     );
@@ -315,93 +265,82 @@ const handleRegenerate = async (id, productIds) => {
       await fetch(`${API_BASE}/api/categories/${id}/rating`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rating }),
+        body: JSON.stringify({ rating })
       });
-    } catch (e) {
-      console.error("Ошибка сохранения рейтинга", e);
-      alert("Не удалось сохранить рейтинг категории");
+    } catch (err) {
+      console.error("Ошибка сохранения рейтинга", err);
     }
   };
 
-  const handleCategoryUpdate = async (id, updates) => {
+  // -------------------------
+  // Частичное обновление категории
+  // -------------------------
+  const saveCategoryPatch = async (id, patch) => {
     setCategories((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
+      prev.map((c) => (c.id === id ? { ...c, ...patch } : c))
     );
 
     try {
       await fetch(`${API_BASE}/api/categories/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
+        body: JSON.stringify(patch)
       });
-    } catch (e) {
-      console.error("Ошибка сохранения изменений категории", e);
-      alert("Не удалось сохранить изменения категории");
+    } catch (err) {
+      console.error("Ошибка PATCH", err);
     }
   };
-
-    const handleShowFamilyModal = async (category) => {
+  // -------------------------
+  // Модалка "Семейство"
+  // -------------------------
+  const openFamily = async (category) => {
     if (!category) return;
 
-    const id = category.id;
-    const name = category.name;
+    const { id, name } = category;
 
-    // сразу открываем модалку в режиме "загрузка"
-    setFamilyModal({
+    setFamilyView({
       categoryId: id,
       categoryName: name,
       familyId: null,
       familyName: "",
       loading: true,
       error: "",
-      members: [],
+      members: []
     });
 
     try {
       const res = await fetch(`${API_BASE}/api/categories/${id}/family`);
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-      const data = await res.json();
+      if (!res.ok) throw new Error(res.status);
 
-      const family = data.family || null;
-      const members = Array.isArray(data.members) ? data.members : [];
-
-      setFamilyModal({
+      const body = await res.json();
+      setFamilyView({
         categoryId: id,
         categoryName: name,
-        familyId: family ? family.id : null,
-        familyName: family ? family.name : "",
+        familyId: body.family?.id || null,
+        familyName: body.family?.name || "",
         loading: false,
         error: "",
-        members,
+        members: Array.isArray(body.members) ? body.members : []
       });
-    } catch (e) {
-      console.error("Ошибка загрузки семейства категории", e);
-      setFamilyModal((prev) => ({
-        ...(prev || {
-          categoryId: category.id,
-          categoryName: category.name,
-        }),
+    } catch (err) {
+      setFamilyView((prev) => ({
+        ...(prev || {}),
         loading: false,
-        error: "Не удалось загрузить семейство для категории",
-        members: [],
+        error: "Не удалось загрузить семейство",
+        members: []
       }));
     }
   };
 
-  const handleCloseFamilyModal = () => {
-    setFamilyModal(null);
-  };
+  const closeFamily = () => setFamilyView(null);
 
-
-  // загрузка товаров для модалки
-  const fetchProductsForModal = async (categoryId, productIds) => {
-    if (!productIds || productIds.length === 0) {
-      setProductsModal((prev) =>
-        prev && prev.id === categoryId
-          ? { ...prev, loading: false, products: [] }
-          : prev
+  // -------------------------
+  // Модалка "Товары"
+  // -------------------------
+  const fetchProducts = async (id, ids) => {
+    if (!ids?.length) {
+      setProductsView((v) =>
+        v && v.id === id ? { ...v, loading: false, products: [] } : v
       );
       return;
     }
@@ -410,110 +349,93 @@ const handleRegenerate = async (id, productIds) => {
       const res = await fetch(`${API_BASE}/api/products/by-ids`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: productIds }),
+        body: JSON.stringify({ ids })
       });
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
+      if (!res.ok) throw new Error(res.status);
 
-      const data = await res.json();
-      const products = data.products || [];
-
-      setProductsModal((prev) =>
-        prev && prev.id === categoryId
-          ? { ...prev, loading: false, products, error: "" }
-          : prev
+      const body = await res.json();
+      setProductsView((v) =>
+        v && v.id === id
+          ? { ...v, loading: false, products: body.products || [], error: "" }
+          : v
       );
-    } catch (e) {
-      console.error("Ошибка загрузки товаров", e);
-      setProductsModal((prev) =>
-        prev && prev.id === categoryId
-          ? {
-              ...prev,
-              loading: false,
-              error: "Не удалось загрузить товары категории",
-            }
-          : prev
+    } catch (err) {
+      setProductsView((v) =>
+        v && v.id === id
+          ? { ...v, loading: false, error: "Не удалось загрузить товары" }
+          : v
       );
     }
   };
 
-  const handleShowProductsModal = (category) => {
+  const openProducts = (category) => {
     if (!category) return;
+
     const ids = category.productIds || [];
 
-    setProductsModal({
+    setProductsView({
       id: category.id,
       name: category.name,
       productIds: ids,
       products: [],
       loading: true,
-      error: "",
+      error: ""
     });
 
-    fetchProductsForModal(category.id, ids);
+    fetchProducts(category.id, ids);
   };
 
-  const handleCloseProductsModal = () => {
-    setProductsModal(null);
-  };
+  const closeProducts = () => setProductsView(null);
 
-  // ====== Интегрированный умный поиск в поле фильтра ======
-  const handleSmartSearchChange = (e) => {
-    const q = e.target.value;
-    setSearch(q);
+  // -------------------------
+  // Умный поиск (интегрирован в фильтры)
+  // -------------------------
+  const smartSearch = (e) => {
+    const q = e.target.value.trim();
+    setSearch(e.target.value);
     setSmartError("");
 
-    if (smartTimeoutRef.current) {
-      clearTimeout(smartTimeoutRef.current);
-    }
+    if (smartTimer.current) clearTimeout(smartTimer.current);
 
-    // если строка пустая — сбрасываем результаты умного поиска
-    if (!q.trim()) {
+    if (!q) {
+      setSmartHits([]);
       setSmartLoading(false);
-      setSmartResultIds([]);
       return;
     }
 
-    smartTimeoutRef.current = setTimeout(async () => {
+    smartTimer.current = setTimeout(async () => {
       try {
         setSmartLoading(true);
-        const params = new URLSearchParams({ q });
         const res = await fetch(
-          `${API_BASE}/api/search/categories?${params.toString()}`
+          `${API_BASE}/api/search/categories?q=${encodeURIComponent(q)}`
         );
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
-        const data = await res.json(); // [{id,name,score,...}]
+        if (!res.ok) throw new Error(res.status);
 
-        if (!Array.isArray(data) || data.length === 0) {
+        const data = await res.json();
+        if (!Array.isArray(data) || !data.length) {
           setSmartError("Ничего не найдено");
-          setSmartResultIds([]);
+          setSmartHits([]);
           return;
         }
 
-        // сохраняем все найденные ID категорий для таблицы
-        const ids = data.map((r) => r.id);
-        setSmartResultIds(ids);
-
-        // выбираем топ-результат справа
-        const top = data[0];
-        setSelectedCategoryId(top.id);
-
-        // таблицу логично показывать с первой страницы
+        const ids = data.map((x) => x.id);
+        setSmartHits(ids);
+        setSelectedId(data[0].id);
         setCurrentPage(1);
+
       } catch (err) {
-        console.error("Ошибка умного поиска:", err);
         setSmartError("Ошибка поиска");
-        setSmartResultIds([]);
+        setSmartHits([]);
       } finally {
         setSmartLoading(false);
       }
     }, 300);
   };
 
+  // -------------------------
+  // Рендер
+  // -------------------------
   return (
     <div className="app-root">
       <header className="header">
@@ -523,6 +445,7 @@ const handleRegenerate = async (id, productIds) => {
             <span className="logo-sub">Управление категориями товаров</span>
           </div>
         </div>
+
         <div className="header-right">
           <div className="user-info">
             <span className="user-name">Личный кабинет</span>
@@ -542,19 +465,19 @@ const handleRegenerate = async (id, productIds) => {
       </div>
 
       <main className="layout">
-        {/* ЛЕВАЯ ПАНЕЛЬ */}
+        {/* левая панель */}
         <section className="panel-left">
           <div className="filters-block">
             <div className="filters-header">Фильтры</div>
 
             <div className="filters-row">
               <div className="filter-item wide">
-                <label>Поиск по категории (умный поиск)</label>
+                <label>Поиск по категории</label>
                 <input
                   className="input"
                   placeholder="Введите текст…"
                   value={search}
-                  onChange={handleSmartSearchChange}
+                  onChange={smartSearch}
                 />
                 {smartLoading && (
                   <div className="smart-search-indicator">Поиск…</div>
@@ -570,9 +493,9 @@ const handleRegenerate = async (id, productIds) => {
                 <label>ID категории</label>
                 <input
                   className="input"
-                  placeholder="Например, 793286151"
                   value={filterId}
                   onChange={(e) => setFilterId(e.target.value)}
+                  placeholder="Например, 793286151"
                 />
               </div>
 
@@ -580,9 +503,9 @@ const handleRegenerate = async (id, productIds) => {
                 <label>ID СТЕ (товара)</label>
                 <input
                   className="input"
-                  placeholder="Например, 123456"
                   value={filterProductId}
                   onChange={(e) => setFilterProductId(e.target.value)}
+                  placeholder="Например, 123456"
                 />
               </div>
 
@@ -607,7 +530,7 @@ const handleRegenerate = async (id, productIds) => {
               </div>
             </div>
           </div>
-
+          {/* таблица */}
           <div className="table-wrapper">
             {loading ? (
               <div className="table">
@@ -626,38 +549,43 @@ const handleRegenerate = async (id, productIds) => {
                       <th>Название категории</th>
                       <th>Описание</th>
                       <th>Дата генерации</th>
+
+                      {/* Новые товары */}
                       <th>
                         <div className="col-header-with-filter">
                           <span>Новые товары</span>
+
                           <button
                             type="button"
                             className={
-                              newItemsFilterValues.size > 0
+                              newFilter.size
                                 ? "col-filter-trigger col-filter-trigger--active"
                                 : "col-filter-trigger"
                             }
                             onClick={(e) => {
                               e.stopPropagation();
-                              setNewItemsFilterOpen(v => !v);
+                              setNewPopup((v) => !v);
                             }}
                           >
                             ▾
                           </button>
 
-                          {newItemsFilterOpen && (
+                          {newPopup && (
                             <div className="col-filter-popover">
-                              <div className="col-filter-popover-header">Фильтр по новым товарам</div>
+                              <div className="col-filter-popover-header">
+                                Фильтр по новым товарам
+                              </div>
 
                               <div className="col-filter-actions">
                                 <button
                                   className="col-filter-link"
-                                  onClick={() => setNewItemsFilterValues(new Set(newItemsOptions))}
+                                  onClick={() => setNewFilter(new Set(newOptions))}
                                 >
                                   Выбрать все
                                 </button>
                                 <button
                                   className="col-filter-link"
-                                  onClick={() => setNewItemsFilterValues(new Set())}
+                                  onClick={() => setNewFilter(new Set())}
                                 >
                                   Сбросить
                                 </button>
@@ -667,12 +595,13 @@ const handleRegenerate = async (id, productIds) => {
                                 <label className="col-filter-option">
                                   <input
                                     type="checkbox"
-                                    checked={newItemsFilterValues.has("yes")}
+                                    checked={newFilter.has("yes")}
                                     onChange={(e) =>
-                                      setNewItemsFilterValues(prev => {
-                                        const next = new Set(prev);
-                                        if (e.target.checked) next.add("yes");
-                                        else next.delete("yes");
+                                      setNewFilter((s) => {
+                                        const next = new Set(s);
+                                        e.target.checked
+                                          ? next.add("yes")
+                                          : next.delete("yes");
                                         return next;
                                       })
                                     }
@@ -683,12 +612,13 @@ const handleRegenerate = async (id, productIds) => {
                                 <label className="col-filter-option">
                                   <input
                                     type="checkbox"
-                                    checked={newItemsFilterValues.has("no")}
+                                    checked={newFilter.has("no")}
                                     onChange={(e) =>
-                                      setNewItemsFilterValues(prev => {
-                                        const next = new Set(prev);
-                                        if (e.target.checked) next.add("no");
-                                        else next.delete("no");
+                                      setNewFilter((s) => {
+                                        const next = new Set(s);
+                                        e.target.checked
+                                          ? next.add("no")
+                                          : next.delete("no");
                                         return next;
                                       })
                                     }
@@ -701,59 +631,65 @@ const handleRegenerate = async (id, productIds) => {
                         </div>
                       </th>
 
+                      {/* статус */}
                       <th>
                         <div className="col-header-with-filter">
                           <span>Статус</span>
                           <button
                             type="button"
                             className={
-                              statusFilterValues.size > 0
+                              statusFilter.size
                                 ? "col-filter-trigger col-filter-trigger--active"
                                 : "col-filter-trigger"
                             }
                             onClick={(e) => {
                               e.stopPropagation();
-                              setStatusFilterOpen(v => !v);
+                              setStatusPopup((v) => !v);
                             }}
                           >
                             ▾
                           </button>
 
-                          {statusFilterOpen && (
+                          {statusPopup && (
                             <div className="col-filter-popover">
-                              <div className="col-filter-popover-header">Фильтр по статусу</div>
+                              <div className="col-filter-popover-header">
+                                Фильтр по статусу
+                              </div>
 
                               <div className="col-filter-actions">
                                 <button
                                   className="col-filter-link"
-                                  onClick={() => setStatusFilterValues(new Set(statusOptions))}
+                                  onClick={() =>
+                                    setStatusFilter(new Set(statusOptions))
+                                  }
                                 >
                                   Выбрать все
                                 </button>
                                 <button
                                   className="col-filter-link"
-                                  onClick={() => setStatusFilterValues(new Set())}
+                                  onClick={() => setStatusFilter(new Set())}
                                 >
                                   Сбросить
                                 </button>
                               </div>
 
                               <div className="col-filter-options">
-                                {statusOptions.map((key) => (
-                                  <label key={key} className="col-filter-option">
+                                {statusOptions.map((s) => (
+                                  <label key={s} className="col-filter-option">
                                     <input
                                       type="checkbox"
-                                      checked={statusFilterValues.has(key)}
+                                      checked={statusFilter.has(s)}
                                       onChange={(e) =>
-                                        setStatusFilterValues(prev => {
-                                          const next = new Set(prev);
-                                          if (e.target.checked) next.add(key);
-                                          else next.delete(key);
+                                        setStatusFilter((old) => {
+                                          const next = new Set(old);
+                                          e.target.checked
+                                            ? next.add(s)
+                                            : next.delete(s);
                                           return next;
                                         })
                                       }
                                     />
-                                    <span>{statusLabel(key)}</span>
+                                    <span>{statusLabel(s)}</span>
                                   </label>
                                 ))}
                               </div>
@@ -762,25 +698,26 @@ const handleRegenerate = async (id, productIds) => {
                         </div>
                       </th>
 
+                      {/* рейтинг */}
                       <th>
                         <div className="col-header-with-filter">
                           <span>Оценка</span>
                           <button
                             type="button"
                             className={
-                              ratingFilterValues.size > 0
+                              ratingFilter.size
                                 ? "col-filter-trigger col-filter-trigger--active"
                                 : "col-filter-trigger"
                             }
                             onClick={(e) => {
                               e.stopPropagation();
-                              setRatingFilterOpen((v) => !v);
+                              setRatingPopup((v) => !v);
                             }}
                           >
                             ▾
                           </button>
 
-                          {ratingFilterOpen && (
+                          {ratingPopup && (
                             <div className="col-filter-popover">
                               <div className="col-filter-popover-header">
                                 Фильтр по оценке
@@ -788,22 +725,16 @@ const handleRegenerate = async (id, productIds) => {
 
                               <div className="col-filter-actions">
                                 <button
-                                  type="button"
                                   className="col-filter-link"
                                   onClick={() =>
-                                    setRatingFilterValues(
-                                      new Set(ratingOptions)
-                                    )
+                                    setRatingFilter(new Set(ratingOptions))
                                   }
                                 >
                                   Выбрать все
                                 </button>
                                 <button
-                                  type="button"
                                   className="col-filter-link"
-                                  onClick={() =>
-                                    setRatingFilterValues(new Set())
-                                  }
+                                  onClick={() => setRatingFilter(new Set())}
                                 >
                                   Сбросить
                                 </button>
@@ -811,28 +742,20 @@ const handleRegenerate = async (id, productIds) => {
 
                               <div className="col-filter-options">
                                 {ratingOptions.map((key) => {
-                                  const checked =
-                                    ratingFilterValues.has(key);
                                   const num = Number(key);
                                   const label =
                                     num === 0 ? "Без оценки" : `${num} ★`;
-
                                   return (
-                                    <label
-                                      key={key}
-                                      className="col-filter-option"
-                                    >
+                                    <label key={key} className="col-filter-option">
                                       <input
                                         type="checkbox"
-                                        checked={checked}
+                                        checked={ratingFilter.has(key)}
                                         onChange={(e) =>
-                                          setRatingFilterValues((prev) => {
-                                            const next = new Set(prev);
-                                            if (e.target.checked) {
-                                              next.add(key);
-                                            } else {
-                                              next.delete(key);
-                                            }
+                                          setRatingFilter((old) => {
+                                            const next = new Set(old);
+                                            e.target.checked
+                                              ? next.add(key)
+                                              : next.delete(key);
                                             return next;
                                           })
                                         }
@@ -846,11 +769,11 @@ const handleRegenerate = async (id, productIds) => {
                           )}
                         </div>
                       </th>
-
                     </tr>
                   </thead>
+
                   <tbody>
-                    {paginatedCategories.length === 0 && (
+                    {paginated.length === 0 && (
                       <tr>
                         <td className="table-empty" colSpan={7}>
                           Нет категорий, подходящих под фильтр
@@ -858,26 +781,27 @@ const handleRegenerate = async (id, productIds) => {
                       </tr>
                     )}
 
-                    {paginatedCategories.map((cat) => (
+                    {paginated.map((c) => (
                       <tr
-                        key={cat.id}
+                        key={c.id}
+                        onClick={() => setSelectedId(c.id)}
                         className={
                           "table-row" +
-                          (cat.id === selectedCategoryId ? " table-row--active" : "") +
-                          (cat.hasUntrainedItems ? " table-row--warning" : "")
+                          (c.id === selectedId ? " table-row--active" : "") +
+                          (c.hasUntrainedItems ? " table-row--warning" : "")
                         }
-                        onClick={() => setSelectedCategoryId(cat.id)}
                       >
-                        <td>{cat.id}</td>
-                        <td className="table-cell-name">{cat.name}</td>
+                        <td>{c.id}</td>
+                        <td className="table-cell-name">{c.name}</td>
                         <td className="table-cell-description">
-                          {cat.description || "—"}
+                          {c.description || "—"}
                         </td>
-                        <td>{formatDate(cat.generatedAt || cat.createdAt)}</td>
+                        <td>{formatDate(c.generatedAt || c.createdAt)}</td>
+
                         <td>
-                          {cat.hasNewItems ? (
+                          {c.hasNewItems ? (
                             <span className="new-items-badge">
-                              Есть новые ({cat.newItemsCount ?? 0})
+                              Есть новые ({c.newItemsCount || 0})
                             </span>
                           ) : (
                             <span className="new-items-badge new-items-badge--none">
@@ -885,9 +809,9 @@ const handleRegenerate = async (id, productIds) => {
                             </span>
                           )}
 
-                          {cat.hasUntrainedItems && (
+                          {c.hasUntrainedItems && (
                             <div className="training-warning">
-                              Необученных СТЕ: {cat.untrainedItemsCount}
+                              Необученных СТЕ: {c.untrainedItemsCount}
                             </div>
                           )}
                         </td>
@@ -895,20 +819,21 @@ const handleRegenerate = async (id, productIds) => {
                         <td>
                           <span
                             className={`status-badge ${
-                              cat.status === "approved"
+                              c.status === "approved"
                                 ? "status-badge--approved"
-                                : cat.status === "rejected"
+                                : c.status === "rejected"
                                 ? "status-badge--rejected"
                                 : "status-badge--pending"
                             }`}
                           >
-                            {statusLabel(cat.status)}
+                            {statusLabel(c.status)}
                           </span>
                         </td>
+
                         <td>
                           <StarRating
-                            value={cat.rating ?? 0}
-                            onChange={(v) => handleRatingChange(cat.id, v)}
+                            value={c.rating || 0}
+                            onChange={(v) => updateRating(c.id, v)}
                           />
                         </td>
                       </tr>
@@ -920,6 +845,7 @@ const handleRegenerate = async (id, productIds) => {
                   <div className="pagination-info">
                     Страница {currentPage} из {totalPages}
                   </div>
+
                   <div className="pagination-buttons">
                     <button
                       className="pagination-btn"
@@ -928,21 +854,22 @@ const handleRegenerate = async (id, productIds) => {
                     >
                       ◀
                     </button>
+
                     {Array.from({ length: totalPages }, (_, i) => i + 1).map(
-                      (page) => (
+                      (p) => (
                         <button
-                          key={page}
-                          className={`pagination-btn ${
-                            page === currentPage
-                              ? "pagination-btn--active"
-                              : ""
-                          }`}
-                          onClick={() => setCurrentPage(page)}
+                          key={p}
+                          className={
+                            "pagination-btn " +
+                            (p === currentPage ? "pagination-btn--active" : "")
+                          }
+                          onClick={() => setCurrentPage(p)}
                         >
-                          {page}
+                          {p}
                         </button>
                       )
                     )}
+
                     <button
                       className="pagination-btn"
                       disabled={currentPage === totalPages}
@@ -957,17 +884,17 @@ const handleRegenerate = async (id, productIds) => {
           </div>
         </section>
 
-        {/* ПРАВАЯ ПАНЕЛЬ */}
+        {/* правая карточка */}
         <section className="panel-right">
           {selectedCategory ? (
             <CategoryCard
               category={selectedCategory}
-              onRegenerate={handleRegenerate}
-              onRatingChange={handleRatingChange}
-              onUpdateCategory={handleCategoryUpdate}
-              onShowProducts={() => handleShowProductsModal(selectedCategory)}
-              isRegenerating={regeneratingIds.has(selectedCategory.id)}
-              onShowFamily={() => handleShowFamilyModal(selectedCategory)} // <- добавили
+              onRegenerate={regenerateCategory}
+              onRatingChange={updateRating}
+              onUpdate={saveCategoryPatch}
+              onShowProducts={() => openProducts(selectedCategory)}
+              isBusy={processing.has(selectedCategory.id)}
+              onShowFamily={() => openFamily(selectedCategory)}
             />
           ) : (
             <div className="card-empty">
@@ -975,37 +902,38 @@ const handleRegenerate = async (id, productIds) => {
             </div>
           )}
         </section>
-
       </main>
 
-      {productsModal && (
+      {/* модалки */}
+      {productsView && (
         <ProductsModal
-          data={productsModal}
-          onClose={handleCloseProductsModal}
-          onRegenerateSelected={handleRegenerate}
+          data={productsView}
+          onClose={closeProducts}
+          onRegenerate={regenerateCategory}
         />
       )}
 
-      {familyModal && (
-        <FamilyModal data={familyModal} onClose={handleCloseFamilyModal} />
+      {familyView && (
+        <FamilyModal data={familyView} onClose={closeFamily} />
       )}
-
     </div>
   );
 }
 
+// ----------------------------------
+// Компонент звёздочек
+// ----------------------------------
 function StarRating({ value = 0, onChange }) {
-  const stars = [1, 2, 3, 4, 5];
   return (
     <div className="stars">
-      {stars.map((s) => (
+      {[1, 2, 3, 4, 5].map((n) => (
         <button
-          key={s}
+          key={n}
           type="button"
-          className={`star ${value >= s ? "star--active" : ""}`}
+          className={`star ${value >= n ? "star--active" : ""}`}
           onClick={(e) => {
             e.stopPropagation();
-            onChange?.(s);
+            onChange?.(n);
           }}
         >
           ★
@@ -1015,14 +943,17 @@ function StarRating({ value = 0, onChange }) {
   );
 }
 
+// ----------------------------------
+// Карточка категории (правая панель)
+// ----------------------------------
 function CategoryCard({
   category,
   onRegenerate,
   onRatingChange,
-  onUpdateCategory,
+  onUpdate,
   onShowProducts,
-  isRegenerating,
-  onShowFamily,
+  isBusy,
+  onShowFamily
 }) {
   const {
     id,
@@ -1035,25 +966,22 @@ function CategoryCard({
     features = [],
     productIds = [],
     hasNewItems,
-    newItemsCount,
+    newItemsCount
   } = category;
 
-  const [descriptionDraft, setDescriptionDraft] = useState(description || "");
+  const [draft, setDraft] = useState(description || "");
   const [saving, setSaving] = useState(false);
 
-  const dateToShow = generatedAt || createdAt;
-
   useEffect(() => {
-    setDescriptionDraft(description || "");
+    setDraft(description || "");
     setSaving(false);
   }, [id, description]);
 
-  const handleSave = async () => {
-    const updates = { description: descriptionDraft.trim() };
-
+  const commit = async () => {
+    const patch = { description: draft.trim() };
     try {
       setSaving(true);
-      await onUpdateCategory?.(id, updates);
+      await onUpdate?.(id, patch);
     } finally {
       setSaving(false);
     }
@@ -1068,9 +996,10 @@ function CategoryCard({
             <div className="card-title-text">{name}</div>
             <div className="card-id">ID категории: {id}</div>
           </div>
+
           <div className="card-meta">
             <div className="card-date">
-              Сгенерировано: {formatDate(dateToShow)}
+              Сгенерировано: {formatDate(generatedAt || createdAt)}
             </div>
             <div className="card-status">
               <span
@@ -1092,12 +1021,11 @@ function CategoryCard({
           <div className="card-rating-row">
             <span className="rating-label">Оценка категории:</span>
             <StarRating
-              value={rating ?? 0}
+              value={rating || 0}
               onChange={(v) => onRatingChange?.(id, v)}
             />
           </div>
 
-          {/* Управление статусом */}
           <div className="card-status-toggle">
             <span className="status-toggle-label">Статус:</span>
 
@@ -1107,7 +1035,7 @@ function CategoryCard({
                 "status-toggle-btn" +
                 (status === "approved" ? " status-toggle-btn--active" : "")
               }
-              onClick={() => onUpdateCategory?.(id, { status: "approved" })}
+              onClick={() => onUpdate?.(id, { status: "approved" })}
             >
               Одобрено
             </button>
@@ -1118,7 +1046,7 @@ function CategoryCard({
                 "status-toggle-btn" +
                 (status === "rejected" ? " status-toggle-btn--active" : "")
               }
-              onClick={() => onUpdateCategory?.(id, { status: "rejected" })}
+              onClick={() => onUpdate?.(id, { status: "rejected" })}
             >
               Не одобрено
             </button>
@@ -1127,32 +1055,32 @@ function CategoryCard({
           <div className="card-actions">
             {hasNewItems && (
               <div className="card-new-items-info">
-                Новые товары в категории: {newItemsCount ?? 0}
+                Новые товары: {newItemsCount || 0}
               </div>
             )}
 
             <button
               className="btn btn-ghost btn-small"
               type="button"
-              onClick={handleSave}
+              onClick={commit}
               disabled={saving}
             >
-              {saving ? "Сохранение..." : "Сохранить изменения"}
+              {saving ? "Сохранение…" : "Сохранить"}
             </button>
 
             <button
               type="button"
               className="btn btn-ghost btn-small"
-              onClick={() => onShowProducts?.()}
-              disabled={!productIds || productIds.length === 0}
+              onClick={onShowProducts}
+              disabled={!productIds?.length}
             >
-              Показать все СТЕ
+              Показать СТЕ
             </button>
 
             <button
               type="button"
               className="btn btn-ghost btn-small"
-              onClick={() => onShowFamily?.()}
+              onClick={onShowFamily}
             >
               Показать семейство
             </button>
@@ -1161,9 +1089,9 @@ function CategoryCard({
               className="btn btn-primary"
               onClick={() => onRegenerate?.(id)}
               type="button"
-              disabled={isRegenerating}
+              disabled={isBusy}
             >
-              {isRegenerating ? "Перегенерация…" : "Перегенерировать категорию"}
+              {isBusy ? "Перегенерация…" : "Перегенерировать"}
             </button>
           </div>
         </div>
@@ -1175,26 +1103,25 @@ function CategoryCard({
           <textarea
             className="input card-description-input"
             rows={4}
-            placeholder="Опишите, что за категория и по каким признакам товары должны в неё попадать."
-            value={descriptionDraft}
-            onChange={(e) => setDescriptionDraft(e.target.value)}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
           />
         </div>
 
         <div className="card-section">
           <div className="card-section-title">Основные характеристики</div>
-          {features.length === 0 ? (
+          {!features.length ? (
             <p className="card-section-empty">
-              Для этой категории пока не выделены уникальные характеристики.
+              Для этой категории нет выделенных характеристик.
             </p>
           ) : (
             <div className="features-grid">
-              {features.map((f, idx) => {
+              {features.map((f, i) => {
                 const values = Array.isArray(f.values)
                   ? f.values.join(", ")
-                  : f.value ?? "";
+                  : f.value || "";
                 return (
-                  <div key={`${f.key}-${idx}`} className="feature-pill">
+                  <div key={`${f.key}-${i}`} className="feature-pill">
                     <span className="feature-key">{f.key}</span>
                     <span className="feature-value">{values}</span>
                   </div>
@@ -1208,7 +1135,7 @@ function CategoryCard({
           <div className="card-section-title">Товары в категории</div>
           <div className="products-count-row">
             <span className="products-count">
-              Количество СТЕ в категории: {productIds?.length ?? 0}
+              Количество СТЕ: {productIds?.length || 0}
             </span>
           </div>
         </div>
@@ -1217,188 +1144,136 @@ function CategoryCard({
   );
 }
 
-function ProductsModal({ data, onClose, onRegenerateSelected }) {
-  const {
-    id: categoryId,
-    name,
-    productIds = [],
-    products = [],
-    loading,
-    error,
-  } = data || {};
+// ----------------------------------
+// Модалка товаров
+// ----------------------------------
+function ProductsModal({ data, onClose, onRegenerate }) {
+  const { id, name, productIds = [], products = [], loading, error } = data;
 
-  const [selectedIds, setSelectedIds] = useState(new Set(productIds));
-
-  // Глобальный поиск
+  const [selection, setSelection] = useState(new Set(productIds));
   const [searchText, setSearchText] = useState("");
 
-  // Фильтры-«чекбоксы» по производителю и стране
-  const [producerFilterOpen, setProducerFilterOpen] = useState(false);
-  const [countryFilterOpen, setCountryFilterOpen] = useState(false);
-  const [producerFilterValues, setProducerFilterValues] = useState(
-    () => new Set()
-  );
-  const [countryFilterValues, setCountryFilterValues] = useState(
-    () => new Set()
-  );
+  const [producerPopup, setProducerPopup] = useState(false);
+  const [countryPopup, setCountryPopup] = useState(false);
+
+  const [producerFilter, setProducerFilter] = useState(() => new Set());
+  const [countryFilter, setCountryFilter] = useState(() => new Set());
 
   const EMPTY_KEY = "__EMPTY__";
 
-  const normalizeOptionKey = (value) => {
-    const v = (value || "").toString().trim();
-    return v === "" ? EMPTY_KEY : v;
+  const norm = (v) => {
+    const t = (v || "").toString().trim();
+    return t === "" ? EMPTY_KEY : t;
   };
 
-  const getOptionLabel = (key) => {
-    if (key === EMPTY_KEY) return "пусто";
-    return key;
-  };
+  const labelOf = (key) => (key === EMPTY_KEY ? "пусто" : key);
 
   useEffect(() => {
-    // При смене категории — сбрасываем выбор и фильтры
-    setSelectedIds(new Set(productIds));
+    setSelection(new Set(productIds));
     setSearchText("");
-    setProducerFilterOpen(false);
-    setCountryFilterOpen(false);
-    setProducerFilterValues(new Set());
-    setCountryFilterValues(new Set());
-  }, [categoryId, productIds]);
+    setProducerPopup(false);
+    setCountryPopup(false);
+    setProducerFilter(new Set());
+    setCountryFilter(new Set());
+  }, [id, productIds]);
 
-  // Уникальные значения для фильтров
   const producerOptions = useMemo(() => {
-    const set = new Set();
-    (products || []).forEach((p) => {
-      set.add(normalizeOptionKey(p.producer));
-    });
-    return Array.from(set).sort((a, b) =>
-      getOptionLabel(a).localeCompare(getOptionLabel(b), "ru", {
-        sensitivity: "base",
-      })
+    const s = new Set();
+    products.forEach((p) => s.add(norm(p.producer)));
+    return [...s].sort((a, b) =>
+      labelOf(a).localeCompare(labelOf(b), "ru", { sensitivity: "base" })
     );
   }, [products]);
 
   const countryOptions = useMemo(() => {
-    const set = new Set();
-    (products || []).forEach((p) => {
-      set.add(normalizeOptionKey(p.country));
-    });
-    return Array.from(set).sort((a, b) =>
-      getOptionLabel(a).localeCompare(getOptionLabel(b), "ru", {
-        sensitivity: "base",
-      })
+    const s = new Set();
+    products.forEach((p) => s.add(norm(p.country)));
+    return [...s].sort((a, b) =>
+      labelOf(a).localeCompare(labelOf(b), "ru", { sensitivity: "base" })
     );
   }, [products]);
 
-  // Применяем фильтры
-  const filteredProducts = useMemo(() => {
-    let list = products || [];
-    if (!list.length) return [];
+  const filtered = useMemo(() => {
+    let list = products;
 
     const q = searchText.trim().toLowerCase();
-    const producerSet = producerFilterValues;
-    const countrySet = countryFilterValues;
-
-    return list.filter((p) => {
-      const specsText =
-        typeof p.raw_specs === "string" ? p.raw_specs.toLowerCase() : "";
-
-      // Глобальный поиск по ID, имени, производителю, стране, характеристикам
-      if (q) {
-        const haystack = [
+    if (q) {
+      list = list.filter((p) => {
+        const block = [
           String(p.id || ""),
           p.name || "",
           p.producer || "",
           p.country || "",
-          specsText || "",
+          (p.raw_specs || "").toLowerCase()
         ]
           .join(" ")
           .toLowerCase();
+        return block.includes(q);
+      });
+    }
 
-        if (!haystack.includes(q)) return false;
-      }
+    if (producerFilter.size) {
+      list = list.filter((p) => producerFilter.has(norm(p.producer)));
+    }
 
-      // Фильтр по производителю (чекбоксы)
-      if (producerSet.size > 0) {
-        const key = normalizeOptionKey(p.producer);
-        if (!producerSet.has(key)) return false;
-      }
+    if (countryFilter.size) {
+      list = list.filter((p) => countryFilter.has(norm(p.country)));
+    }
 
-      // Фильтр по стране (чекбоксы)
-      if (countrySet.size > 0) {
-        const key = normalizeOptionKey(p.country);
-        if (!countrySet.has(key)) return false;
-      }
+    return list;
+  }, [products, searchText, producerFilter, countryFilter]);
 
-      return true;
-    });
-  }, [products, searchText, producerFilterValues, countryFilterValues]);
-
-  const toggleOne = (pid, checked) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(pid);
-      else next.delete(pid);
+  const toggle = (pid, v) => {
+    setSelection((old) => {
+      const next = new Set(old);
+      v ? next.add(pid) : next.delete(pid);
       return next;
     });
   };
 
-  // «Выделить всё» только по видимым строкам
-  const allVisibleChecked =
-    filteredProducts.length > 0 &&
-    filteredProducts.every((p) => selectedIds.has(p.id));
+  const allChecked =
+    filtered.length && filtered.every((p) => selection.has(p.id));
 
-  const toggleAll = (checked) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (checked) {
-        filteredProducts.forEach((p) => next.add(p.id));
-      } else {
-        filteredProducts.forEach((p) => next.delete(p.id));
-      }
+  const toggleAll = (v) => {
+    setSelection((old) => {
+      const next = new Set(old);
+      if (v) filtered.forEach((p) => next.add(p.id));
+      else filtered.forEach((p) => next.delete(p.id));
       return next;
     });
   };
 
-  const handleRegenerateClick = async () => {
-    const ids = Array.from(selectedIds);
-    if (ids.length === 0) {
-      if (
-        !window.confirm(
-          "Вы не выбрали ни одного товара. Перегенерировать по ВСЕМ товарам категории?"
-        )
-      ) {
-        return;
-      }
-      await onRegenerateSelected?.(categoryId); // без списка → все товары
+  const doRegen = async () => {
+    const ids = [...selection];
+    if (!ids.length) {
+      const ok = window.confirm(
+        "Вы не выбрали ни одного товара. Перегенерировать по всем?"
+      );
+      if (!ok) return;
+      await onRegenerate(id);
     } else {
       onClose();
-      await onRegenerateSelected?.(categoryId, ids);
+      await onRegenerate(id, ids);
     }
   };
 
-  // Управление чекбоксами в попапе фильтра
-  const toggleFilterValue = (kind, key, checked) => {
-    const updater =
-      kind === "producer" ? setProducerFilterValues : setCountryFilterValues;
-
-    updater((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(key);
-      else next.delete(key);
+  const toggleFilter = (kind, key, v) => {
+    const setter = kind === "producer" ? setProducerFilter : setCountryFilter;
+    setter((old) => {
+      const next = new Set(old);
+      v ? next.add(key) : next.delete(key);
       return next;
     });
   };
 
-  const selectAllFilterValues = (kind, options) => {
-    const updater =
-      kind === "producer" ? setProducerFilterValues : setCountryFilterValues;
-    updater(new Set(options));
+  const selectAll = (kind, opts) => {
+    const setter = kind === "producer" ? setProducerFilter : setCountryFilter;
+    setter(new Set(opts));
   };
 
-  const clearFilterValues = (kind) => {
-    const updater =
-      kind === "producer" ? setProducerFilterValues : setCountryFilterValues;
-    updater(new Set());
+  const clearAll = (kind) => {
+    const setter = kind === "producer" ? setProducerFilter : setCountryFilter;
+    setter(new Set());
   };
 
   if (!data) return null;
@@ -1407,9 +1282,7 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
     <div className="modal-backdrop" onClick={onClose}>
       <div
         className="modal modal-wide"
-        onClick={(e) => {
-          e.stopPropagation();
-        }}
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
           <h2 className="modal-title">СТЕ в категории «{name}»</h2>
@@ -1430,35 +1303,30 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
           ) : productIds.length === 0 ? (
             <p>В этой категории пока нет СТЕ.</p>
           ) : products.length === 0 ? (
-            <p>По указанным ID товаров в БД ничего не найдено.</p>
+            <p>По указанным ID товаров ничего не найдено.</p>
           ) : (
             <>
-              {/* Глобальный поиск по таблице */}
-            <div className="modal-filters">
-              <div className="modal-filters-counter modal-filters-counter--top">
-                Всего: {products.length} • По фильтру: {filteredProducts.length}
-              </div>
+              <div className="modal-filters">
+                <div className="modal-filters-counter modal-filters-counter--top">
+                  Всего: {products.length} • По фильтру: {filtered.length}
+                </div>
 
-              <div className="modal-filters-main">
-                <label className="modal-filters-label">
-                  Поиск по таблице (ID, наименование, производитель, страна, характеристики)
-                </label>
-                <input
-                  className="input modal-filters-input"
-                  placeholder="Введите текст для поиска…"
-                  value={searchText}
-                  onChange={(e) => setSearchText(e.target.value)}
-                />
-              </div>
-              <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={handleRegenerateClick}
-                >
-                  Перегенерировать по выбранным
+                <div className="modal-filters-main">
+                  <label className="modal-filters-label">
+                    Поиск (ID, имя, производитель, страна, характеристики)
+                  </label>
+                  <input
+                    className="input modal-filters-input"
+                    placeholder="Введите текст…"
+                    value={searchText}
+                    onChange={(e) => setSearchText(e.target.value)}
+                  />
+                </div>
+
+                <button type="button" className="btn btn-primary" onClick={doRegen}>
+                  Перегенерировать
                 </button>
-            </div>
-
+              </div>
 
               <div className="products-table-wrapper">
                 <table className="products-table">
@@ -1467,80 +1335,68 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
                       <th className="products-col-checkbox">
                         <input
                           type="checkbox"
-                          checked={
-                            filteredProducts.length > 0 && allVisibleChecked
-                          }
+                          checked={allChecked}
                           onChange={(e) => toggleAll(e.target.checked)}
                         />
                       </th>
                       <th>ID</th>
                       <th>Наименование</th>
+
                       <th>
                         <div className="col-header-with-filter">
                           <span>Производитель</span>
                           <button
                             type="button"
                             className={
-                              producerFilterValues.size > 0
+                              producerFilter.size
                                 ? "col-filter-trigger col-filter-trigger--active"
                                 : "col-filter-trigger"
                             }
-                            onClick={() =>
-                              setProducerFilterOpen((v) => !v)
-                            }
+                            onClick={() => setProducerPopup((v) => !v)}
                           >
                             ▾
                           </button>
-                          {producerFilterOpen && (
+
+                          {producerPopup && (
                             <div className="col-filter-popover">
                               <div className="col-filter-popover-header">
-                                <span>Фильтр по производителю</span>
+                                Фильтр по производителю
                               </div>
+
                               <div className="col-filter-actions">
                                 <button
-                                  type="button"
                                   className="col-filter-link"
                                   onClick={() =>
-                                    selectAllFilterValues(
-                                      "producer",
-                                      producerOptions
-                                    )
+                                    selectAll("producer", producerOptions)
                                   }
                                 >
                                   Выбрать все
                                 </button>
                                 <button
-                                  type="button"
                                   className="col-filter-link"
-                                  onClick={() =>
-                                    clearFilterValues("producer")
-                                  }
+                                  onClick={() => clearAll("producer")}
                                 >
                                   Сбросить
                                 </button>
                               </div>
+
                               <div className="col-filter-options">
                                 {producerOptions.map((key) => {
-                                  const label = getOptionLabel(key);
-                                  const checked =
-                                    producerFilterValues.has(key);
+                                  const checked = producerFilter.has(key);
                                   return (
-                                    <label
-                                      key={key}
-                                      className="col-filter-option"
-                                    >
+                                    <label key={key} className="col-filter-option">
                                       <input
                                         type="checkbox"
                                         checked={checked}
                                         onChange={(e) =>
-                                          toggleFilterValue(
+                                          toggleFilter(
                                             "producer",
                                             key,
                                             e.target.checked
                                           )
                                         }
                                       />
-                                      <span>{label}</span>
+                                      <span>{labelOf(key)}</span>
                                     </label>
                                   );
                                 })}
@@ -1549,69 +1405,63 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
                           )}
                         </div>
                       </th>
+
                       <th>
                         <div className="col-header-with-filter">
                           <span>Страна</span>
+
                           <button
                             type="button"
                             className={
-                              countryFilterValues.size > 0
+                              countryFilter.size
                                 ? "col-filter-trigger col-filter-trigger--active"
                                 : "col-filter-trigger"
                             }
-                            onClick={() => setCountryFilterOpen((v) => !v)}
+                            onClick={() => setCountryPopup((v) => !v)}
                           >
                             ▾
                           </button>
-                          {countryFilterOpen && (
+
+                          {countryPopup && (
                             <div className="col-filter-popover">
                               <div className="col-filter-popover-header">
-                                <span>Фильтр по стране</span>
+                                Фильтр по стране
                               </div>
+
                               <div className="col-filter-actions">
                                 <button
-                                  type="button"
                                   className="col-filter-link"
                                   onClick={() =>
-                                    selectAllFilterValues(
-                                      "country",
-                                      countryOptions
-                                    )
+                                    selectAll("country", countryOptions)
                                   }
                                 >
                                   Выбрать все
                                 </button>
                                 <button
-                                  type="button"
                                   className="col-filter-link"
-                                  onClick={() =>
-                                    clearFilterValues("country")
-                                  }
+                                  onClick={() => clearAll("country")}
                                 >
                                   Сбросить
                                 </button>
                               </div>
+
                               <div className="col-filter-options">
                                 {countryOptions.map((key) => {
-                                  const label = getOptionLabel(key);
-                                  const checked = countryFilterValues.has(key);
+                                  const checked = countryFilter.has(key);
                                   return (
-                                    <label
-                                      key={key}
-                                      className="col-filter-option"
-                                    >
+                                    <label key={key} className="col-filter-option">
                                       <input
                                         type="checkbox"
                                         checked={checked}
                                         onChange={(e) =>
-                                          toggleFilterValue(
+                                          toggleFilter(
                                             "country",
                                             key,
                                             e.target.checked
                                           )
                                         }
                                       />
-                                      <span>{label}</span>
+                                      <span>{labelOf(key)}</span>
                                     </label>
                                   );
                                 })}
@@ -1620,88 +1470,49 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
                           )}
                         </div>
                       </th>
+
                       <th>Характеристики</th>
                     </tr>
                   </thead>
+
                   <tbody>
-                    {filteredProducts.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="table-empty">
-                          Нет товаров, подходящих под фильтр
+                    {filtered.map((p) => (
+                      <tr
+                        key={p.id}
+                        className={p.untrained ? "product-row--untrained" : ""}
+                      >
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={selection.has(p.id)}
+                            onChange={(e) => toggle(p.id, e.target.checked)}
+                          />
+                        </td>
+                        <td>{p.id}</td>
+                        <td className="products-col-name">
+                          {p.name}
+                          {p.untrained && (
+                            <span className="product-tag-untrained">
+                              UNTRAINED
+                            </span>
+                          )}
+                        </td>
+                        <td className="products-col-producer">{p.producer || "—"}</td>
+                        <td className="products-col-country">{p.country || "—"}</td>
+                        <td className="products-col-specs">
+                          {(p.raw_specs || "")
+                            .split("\n")
+                            .filter(Boolean)
+                            .map((line, i) => (
+                              <div key={i} className="products-spec-line">
+                                {line}
+                              </div>
+                            ))}
                         </td>
                       </tr>
-                    ) : (
-                      filteredProducts.map((p) => {
-                        const specsText =
-                          typeof p.raw_specs === "string" ? p.raw_specs : "";
-                        const specsLines = specsText
-                          ? specsText
-                              .split(";")
-                              .map((s) => s.trim())
-                              .filter(Boolean)
-                          : [];
-
-                        const untrained = p.is_used_for_training === false;
-
-                        return (
-                          <tr
-                            key={p.id}
-                            className={
-                              untrained
-                                ? "product-row product-row--untrained"
-                                : "product-row"
-                            }
-                          >
-                            <td className="products-col-checkbox">
-                              <input
-                                type="checkbox"
-                                checked={selectedIds.has(p.id)}
-                                onChange={(e) =>
-                                  toggleOne(p.id, e.target.checked)
-                                }
-                              />
-                            </td>
-                            <td className="products-col-id">{p.id}</td>
-                            <td className="products-col-name">
-                              {p.name || "—"}
-                              {untrained && (
-                                <span className="product-tag-untrained">
-                                  не использован в обучении
-                                </span>
-                              )}
-                            </td>
-                            <td className="products-col-producer">
-                              {p.producer || "—"}
-                            </td>
-                            <td className="products-col-country">
-                              {p.country || "—"}
-                            </td>
-                            <td className="products-col-specs">
-                              {specsLines.length === 0 ? (
-                                <span>—</span>
-                              ) : (
-                                specsLines.map((line, idx) => (
-                                  <div
-                                    key={idx}
-                                    className="products-spec-line"
-                                  >
-                                    {line}
-                                  </div>
-                                ))
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
+                    ))}
                   </tbody>
                 </table>
-              </div>
-
-              <div className="modal-footer">
-                <div className="modal-footer-info">
-                  Выбрано товаров: {selectedIds.size} из {products.length}
-                </div>
               </div>
             </>
           )}
@@ -1711,127 +1522,59 @@ function ProductsModal({ data, onClose, onRegenerateSelected }) {
   );
 }
 
+// ----------------------------------
+// Модалка семейства
+// ----------------------------------
 function FamilyModal({ data, onClose }) {
   const {
-    categoryId,
     categoryName,
-    familyId,
     familyName,
     loading,
     error,
-    members = [],
+    members = []
   } = data || {};
 
-  // сортируем: базовая категория первой, потом по similarity убыв.
-  const sortedMembers = [...members].sort((a, b) => {
-    if (a.isBase && !b.isBase) return -1;
-    if (!a.isBase && b.isBase) return 1;
-    const sa = typeof a.similarity === "number" ? a.similarity : -1;
-    const sb = typeof b.similarity === "number" ? b.similarity : -1;
-    return sb - sa;
-  });
+  if (!data) return null;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal modal-wide"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2 className="modal-title">
-            Семейство категории: {categoryName} (ID {categoryId})
-          </h2>
-          <button
-            type="button"
-            className="btn btn-ghost btn-small"
-            onClick={onClose}
-          >
-            Закрыть
+          <h2 className="modal-title">Семейство категории «{categoryName}»</h2>
+          <button className="btn btn-ghost btn-small" onClick={onClose}>
+            ✕
           </button>
         </div>
 
         <div className="modal-body">
-          {familyId && (
-            <div className="family-meta">
-              Семейство: <span className="family-name">{familyName}</span> (ID {familyId})
-            </div>
-          )}
+          {loading ? (
+            <p>Загрузка…</p>
+          ) : error ? (
+            <p className="products-error">{error}</p>
+          ) : (
+            <>
+              <p>
+                <strong>Семейство:</strong> {familyName || "—"}
+              </p>
 
-          {loading && (
-            <div className="card-section-empty">
-              Загрузка семейства…
-            </div>
-          )}
-
-          {error && !loading && (
-            <div className="products-error">{error}</div>
-          )}
-
-          {!loading && !error && sortedMembers.length === 0 && (
-            <div className="card-section-empty">
-              Для этой категории ещё не построено семейство.
-            </div>
-          )}
-
-          {!loading && !error && sortedMembers.length > 0 && (
-            <div className="family-modal-content">
-              <table className="family-table">
-                <thead>
-                  <tr>
-                    <th>Роль</th>
-                    <th>ID категории</th>
-                    <th>Название</th>
-                    <th>Описание</th>
-                    <th>Схожесть с базовой</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedMembers.map((m) => (
-                    <tr
-                      key={m.categoryId}
-                      className={m.isBase ? "family-row family-row--base" : "family-row"}
-                    >
-                      <td>{m.isBase ? "Базовая" : "Похожая"}</td>
-                      <td>{m.categoryId}</td>
-                      <td>{m.name}</td>
-                      <td>{m.description || "—"}</td>
-                      <td>
-                        {typeof m.similarity === "number" ? (
-                          <div className="family-similarity">
-                            <div>
-                              Итог: {(m.similarity * 100).toFixed(0)}%
-                            </div>
-                            {m.keySimilarity != null && m.valueSimilarity != null && (
-                              <div className="family-similarity-sub">
-                                по структуре:{" "}
-                                {(m.keySimilarity * 100).toFixed(0)}% •
-                                по семантике:{" "}
-                                {(m.valueSimilarity * 100).toFixed(0)}%
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                    </tr>
+              {members.length === 0 ? (
+                <p className="card-section-empty">Нет членов семейства.</p>
+              ) : (
+                <ul className="products-list">
+                  {members.map((m) => (
+                    <li key={m.id} className="products-list-item">
+                      <div className="products-item-header">{m.name}</div>
+                      <div>ID: {m.id}</div>
+                    </li>
                   ))}
-                </tbody>
-              </table>
-
-              <div className="family-hint">
-                Семейство показывает группу категорий, которые близки по
-                структуре характеристик и по семантике значений.
-                Базовая категория выделена, остальные — её «родственники».
-              </div>
-            </div>
+                </ul>
+              )}
+            </>
           )}
         </div>
       </div>
     </div>
   );
 }
-
-
 
 export default App;
