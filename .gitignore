@@ -7,3 +7,5 @@ py_back/rexexp/data/result_itr1.csv
 py_back/rexexp/data/result_itr2.csv
 py_back/rexexp/data/result_itr3.csv
 *.safetensors
+*/__pycache__/
+front_app/dist/
