@@ -5,8 +5,8 @@ npm run build
 
 set -e
 
-SRC_DIR="/root/TH2/front_app/dist"
-DST_DIR="/var/www/react_practice"
+SRC_DIR="/root/TH3/front_app/dist"
+DST_DIR="/var/www/faso312.ru"
 
 echo "[1/4] Проверка, есть ли билд..."
 if [ ! -d "$SRC_DIR" ]; then
