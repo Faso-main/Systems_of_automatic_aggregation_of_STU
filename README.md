@@ -105,9 +105,11 @@ uvicorn search_service:app --reload
 Файлы интерфейса находятся на стороне пользователя. Достаточно разместить `App.jsx` и `styles.css` в любой React-сборке.
 
 ### База данных
+```bash
 cd server
 DDL доступен в файле `all_structure.sql` .
 Подробная структура описана в `DB.md` .
+```
 
 ---
 
