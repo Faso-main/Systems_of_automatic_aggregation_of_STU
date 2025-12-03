@@ -1,24 +1,3 @@
-# MAKE_universal_ontology_from_runtime_v2.py
-# Строит универсальную онтологию категорий на основе двух файлов:
-#   - PROD_runtime_V2_READY.json        (характеристики по каждому товару)
-#   - runtime_llm_items_itr3.json       (категории -> список item_ids)
-#
-# На выходе: result/universal_characteristics_ontology_v4.json
-# Формат:
-# {
-#   "meta": {...},
-#   "categories": {
-#     "<id_категории>": {
-#       "category_id": int,
-#       "category_name": str,
-#       "short_description": str,
-#       "characteristics": [ "Ключ: Значение", ... ],  # top по частоте
-#       "sample_products": [ "id_сте", ... ],
-#       "total_items": int
-#     }
-#   }
-# }
-
 import json
 from pathlib import Path
 from datetime import datetime
@@ -160,13 +139,13 @@ def build_ontology(
 
 
 def main():
-    print("🔹 Загружаем runtime items…")
+    print("Загружаем runtime items…")
     runtime_items = load_runtime_items()
 
-    print("🔹 Загружаем runtime categories…")
+    print("Загружаем runtime categories…")
     runtime_categories = load_runtime_categories()
 
-    print("🔹 Строим онтологию категорий…")
+    print("Строим онтологию категорий…")
     ontology = build_ontology(runtime_items, runtime_categories)
 
     Path(OUTPUT_DIR).mkdir(exist_ok=True)
@@ -174,8 +153,8 @@ def main():
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(ontology, f, ensure_ascii=False, indent=2)
 
-    print(f"✅ Онтология сохранена в {out_path}")
-    print(f"   Категорий: {len(ontology['categories'])}")
+    print(f"Онтология сохранена в {out_path}")
+    print(f"Категорий: {len(ontology['categories'])}")
 
 
 if __name__ == "__main__":

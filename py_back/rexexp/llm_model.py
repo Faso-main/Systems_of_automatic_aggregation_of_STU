@@ -39,7 +39,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ============================= НОРМАЛИЗАЦИЯ КЛЮЧЕЙ =============================
 
 NORMALIZATION_MAP = {
     # Общие
@@ -572,7 +571,7 @@ def load_runtime_model(
 # ============================= MAIN =============================
 
 def main():
-    logger.info("🚀 Старт universal_characteristics_extractor_v4")
+    logger.info("Старт universal_characteristics_extractor_v4")
 
     df = load_data()
     category_chars, category_counts, category_names = extract_by_categories(df)
@@ -581,7 +580,7 @@ def main():
 
     save_ontology(significant, category_counts, category_names, len(df))
 
-    logger.info("✅ Онтология V4 построена.")
+    logger.info("Онтология V4 построена.")
 
 
 if __name__ == "__main__":

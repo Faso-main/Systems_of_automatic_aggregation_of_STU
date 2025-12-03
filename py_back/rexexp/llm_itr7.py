@@ -614,7 +614,7 @@ def save_ontology(
 # ============================= MAIN =============================
 
 def main():
-    logger.info("🚀 Старт universal_characteristics_extractor_v5")
+    logger.info("Старт universal_characteristics_extractor_v5")
 
     df = load_data()
     category_chars, category_counts, category_names = extract_by_categories(df)
@@ -625,7 +625,7 @@ def main():
 
     save_ontology(significant, attributes, category_counts, category_names, len(df))
 
-    logger.info("✅ Онтология V5 построена.")
+    logger.info("Онтология V5 построена.")
 
 
 if __name__ == "__main__":

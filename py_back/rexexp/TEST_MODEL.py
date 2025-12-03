@@ -1,26 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""
-generate_llama_attrs_v2.py
-
-Версия 2:
-Модель не придумывает характеристики с нуля,
-а выбирает 3–5 штук из КАНОНИЧЕСКОГО СПИСКА атрибутов.
-
-Вход:
-    CSV_PATH = "py_back/rexexp/data/result_itr4.csv"
-
-Выход:
-    py_back/rexexp/data/category_attrs_llama_v2.csv
-
-Формат:
-    category, attributes  (атрибуты через "; ")
-
-Зависимости:
-    pip install transformers accelerate torch pandas
-"""
-
 import re
 from typing import List, Dict
 
@@ -28,24 +5,13 @@ import pandas as pd
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 
 
-# ------------------------------
-# Пути
-# ------------------------------
 
 CSV_PATH = "py_back/rexexp/data/result_itr4.csv"
 OUT_PATH = "py_back/rexexp/data/category_attrs_llama_v2.csv"
 
-# ------------------------------
-# Локальная модель
-# ------------------------------
-# ВСТАВЬ СВОЮ / ЛОКАЛЬНЫЙ ПУТЬ
+
 MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
-# MODEL_NAME = "./local_llama_model_dir"
 
-
-# ------------------------------
-# Канонический список атрибутов
-# ------------------------------
 
 CANONICAL_ATTRS: List[str] = [
     # Общие (одежда/обувь/СИЗ)
@@ -112,11 +78,6 @@ def norm(s: str) -> str:
 
 CANONICAL_MAP: Dict[str, str] = {norm(a): a for a in CANONICAL_ATTRS}
 
-
-# ------------------------------
-# SYSTEM PROMPT
-# ------------------------------
-
 SYSTEM_TEXT = (
     "Ты — эксперт по характеристикам товаров в e-commerce. "
     "Тебе дают название категории на русском. "
@@ -161,8 +122,6 @@ def clean_and_filter_response(text: str) -> List[str]:
         if key in CANONICAL_MAP:
             out.append(CANONICAL_MAP[key])
 
-    # максимум 5
-    # + уберем дубликаты, сохранив порядок
     seen = set()
     final = []
     for a in out:

@@ -88,7 +88,7 @@ def build_item_fields(row: pd.Series) -> Dict[str, Any]:
 def main():
     Path(OUTPUT_DIR).mkdir(exist_ok=True)
 
-    print("🔧 Загружаем CSV...")
+    print("Загружаем CSV...")
     df = load_items(CSV_PATH)
     print(f"Строк в датасете: {len(df):,}")
 
