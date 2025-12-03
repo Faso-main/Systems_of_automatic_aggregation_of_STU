@@ -8,27 +8,21 @@ import pymorphy3
 from fastapi import FastAPI, Query
 from pydantic import BaseModel
 
-# ==========================
-#   НАСТРОЙКИ
-# ==========================
 
-# Путь к CSV с товарами и категориями
-# Можешь поменять на абсолютный, если будешь запускать из другой директории:
-# CSV_PATH = "/root/TH3/py_back/rexexp/data/result_itr4.csv"
+
 CSV_PATH = "py_back/rexexp/data/result_itr4.csv"
 
-# Сколько результатов возвращаем
+
+
 DEFAULT_TOP_K = 10
 DEFAULT_MIN_SCORE = 40.0
 
-# Сколько СТЕ/строк спецификаций использовать при сборке описания категории
+
 MAX_PRODUCTS_PER_CAT = 50   # чтобы сильно не раздувать текст
 MAX_TOTAL_SPEC_LINES = 200  # на всякий случай, ограничение объёма
 
 
-# ==========================
-#   ИСПРАВЛЕНИЕ РАСКЛАДКИ EN→RU
-# ==========================
+
 
 EN_TO_RU = str.maketrans({
     'q':'й', 'w':'ц', 'e':'у', 'r':'к', 't':'е', 'y':'н', 'u':'г', 'i':'ш', 'o':'щ', 'p':'з', '[':'х', ']':'ъ',
@@ -44,9 +38,7 @@ def correct_keyboard_layout(text: str) -> str:
     return text.translate(EN_TO_RU)
 
 
-# ==========================
-#   НОРМАЛИЗАЦИЯ + ЛЕММАТИЗАЦИЯ
-# ==========================
+
 
 _morph = pymorphy3.MorphAnalyzer()
 
@@ -94,9 +86,7 @@ def lemmatize_text(text: str) -> str:
     return " ".join(lemmas)
 
 
-# ==========================
-#   СБОРКА КАТЕГОРИЙ ИЗ CSV
-# ==========================
+
 
 def load_categories_from_csv() -> pd.DataFrame:
     """
@@ -192,9 +182,6 @@ def build_index_from_csv() -> pd.DataFrame:
     return df
 
 
-# ==========================
-#   ПОИСК
-# ==========================
 
 def smart_search(
     cat_df: pd.DataFrame,
@@ -247,9 +234,6 @@ def smart_search(
     return results[:top_k]
 
 
-# ==========================
-#   FASTAPI СЕРВИС
-# ==========================
 
 app = FastAPI(title="TH3 Smart Search (CSV-based)")
 

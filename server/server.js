@@ -17,24 +17,17 @@ app.use(
 
 app.use(express.json({ limit: '10mb' }));
 
-// ===========================
-// Настройка подключения к БД
-// ===========================
+
 const pool = new Pool({
   user: 'th3_app',
   host: 'localhost',
   database: 'th3_db',
-  password: '1234', // поправь на свой если нужно
+  password: '1234',
   port: 5432,
 });
 
-// ===========================
-// Вспомогательные функции
-// ===========================
 
-/**
- * Преобразует строку категории из БД к формату, который удобен фронтенду.
- */
+
 function mapCategoryRow(row) {
   const createdAt = row.generated_at || row.created_at || null;
 
@@ -74,7 +67,6 @@ function mapCategoryRow(row) {
 }
 
 
-// оформляем СТЕ в формат, который ждёт runtime_llm_itr3
 function buildItemForRuntime(product, categoryName) {
   const specsText =
     typeof product.raw_specs === 'string' ? product.raw_specs : '';
@@ -100,7 +92,7 @@ function buildItemForRuntime(product, categoryName) {
   return item;
 }
 
-// Базовый SELECT для категорий
+
 const CATEGORY_SELECT = `
   SELECT
       c.id                                      AS id,
@@ -152,11 +144,7 @@ const CATEGORY_SELECT = `
 `;
 
 
-// ===========================
-// РОУТЫ
-// ===========================
 
-// Health-check
 app.get('/api/health', async (req, res) => {
   try {
     const result = await pool.query('SELECT NOW()');
@@ -167,7 +155,7 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// Все категории
+
 app.get('/api/categories', async (req, res) => {
   try {
     const query = `
@@ -195,7 +183,7 @@ app.get('/api/categories', async (req, res) => {
   }
 });
 
-// Одна категория по id
+
 app.get('/api/categories/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -233,7 +221,7 @@ app.get('/api/categories/:id', async (req, res) => {
   }
 });
 
-// Рейтинг категории (1–5)
+
 app.post('/api/categories/:id/rating', async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -271,7 +259,7 @@ app.post('/api/categories/:id/rating', async (req, res) => {
   }
 });
 
-// Обновление категории (описание / статус / рейтинг)
+
 app.patch('/api/categories/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -323,8 +311,8 @@ app.patch('/api/categories/:id', async (req, res) => {
   }
 });
 
-// Перегенерация категории через Python LLM-рантайм
-// Перегенерация категории через Python LLM-рантайм
+
+
 app.post('/api/categories/:id/regenerate', async (req, res) => {
   const client = await pool.connect();
 
@@ -337,7 +325,7 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
 
     const { product_ids } = req.body || {};
 
-    // 1. Получаем категорию (название) + список id СТЕ
+
     const catQuery = `
       ${CATEGORY_SELECT}
       WHERE c.id = $1
@@ -364,7 +352,7 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
     const catRow = mapCategoryRow(catResult.rows[0]);
     const categoryName = catRow.name;
 
-    // 2. Загружаем товары: либо все, либо только выбранные
+  
     let prodResult;
     let usedProductIds = [];
 
@@ -393,7 +381,7 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
         [id, cleanIds]
       );
     } else {
-      // старое поведение: все товары категории
+
       prodResult = await client.query(
         `
         SELECT id, name, producer, country, raw_specs, is_used_for_training
@@ -415,10 +403,10 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
 
     usedProductIds = products.map((p) => p.id);
 
-    // 3. Оформляем СТЕ так, как ждёт runtime_llm_itr3
+
     const items = products.map((p) => buildItemForRuntime(p, categoryName));
 
-    // 4. Отправляем в Python-сервис
+
     const runtimeResp = await fetch(
       `${RUNTIME_LLM_URL}/regenerate-category`,
       {
@@ -449,10 +437,8 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
       ? runtimeData.features
       : [];
 
-    // 5. Обновляем БД в транзакции:
-    //    - обновляем служебные флаги категории,
-    //    - пересоздаём записи в category_feature,
-    //    - помечаем использованные товары как "is_used_for_training = true".
+
+
     await client.query('BEGIN');
 
     await client.query(
@@ -467,13 +453,13 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
       [id]
     );
 
-    // удаляем старые характеристики
+
     await client.query(
       `DELETE FROM category_feature WHERE category_id = $1;`,
       [id]
     );
 
-    // вставляем новые
+
     for (const f of features) {
       const key = f.key;
       const values = Array.isArray(f.values) ? f.values : [];
@@ -491,7 +477,6 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
       }
     }
 
-    // помечаем товары, участвовавшие в генерации, как использованные для обучения
     if (usedProductIds.length > 0) {
       await client.query(
         `
@@ -522,9 +507,7 @@ app.post('/api/categories/:id/regenerate', async (req, res) => {
 });
 
 
-// ===============================
-// Получить товары по списку id СТЕ
-// ===============================
+
 app.post('/api/products/by-ids', async (req, res) => {
   try {
     const { ids } = req.body || {};
@@ -590,7 +573,7 @@ app.get('/api/search/categories', async (req, res) => {
   }
 });
 
-// Семейство категории (кластер похожих категорий)
+
 app.get('/api/categories/:id/family', async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -598,7 +581,7 @@ app.get('/api/categories/:id/family', async (req, res) => {
       return res.status(400).json({ error: 'Некорректный ID категории' });
     }
 
-    // Находим семейство, к которому относится категория
+
     const familyRes = await pool.query(
       `
       SELECT
@@ -613,7 +596,7 @@ app.get('/api/categories/:id/family', async (req, res) => {
     );
 
     if (familyRes.rows.length === 0) {
-      // Семейство не найдено — вернём пустой ответ, но не 404
+
       return res.json({
         base: { id, name: null },
         family: null,
@@ -624,8 +607,7 @@ app.get('/api/categories/:id/family', async (req, res) => {
     const familyRow = familyRes.rows[0];
     const familyId = Number(familyRow.family_id);
 
-    // Загружаем всех членов семейства +
-    // подмешиваем similarity относительно базовой категории (id)
+
     const membersRes = await pool.query(
       `
       SELECT
@@ -681,7 +663,7 @@ app.get('/api/categories/:id/family', async (req, res) => {
       };
     });
 
-    // Базовая категория — из членов семейства
+
     const baseMember = members.find((m) => m.isBase) || null;
 
     res.json({
@@ -702,7 +684,7 @@ app.get('/api/categories/:id/family', async (req, res) => {
   }
 });
 
-// Семейство категории (кластер похожих категорий)
+
 app.get('/api/categories/:id/family', async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -710,7 +692,7 @@ app.get('/api/categories/:id/family', async (req, res) => {
       return res.status(400).json({ error: 'Некорректный ID категории' });
     }
 
-    // Находим семейство, к которому относится категория
+
     const familyRes = await pool.query(
       `
       SELECT
@@ -724,7 +706,7 @@ app.get('/api/categories/:id/family', async (req, res) => {
       [id]
     );
 
-    // если категория ни в какое семейство не попала — возвращаем пустой ответ
+
     if (familyRes.rows.length === 0) {
       return res.json({
         baseCategoryId: id,
@@ -736,7 +718,7 @@ app.get('/api/categories/:id/family', async (req, res) => {
     const familyRow = familyRes.rows[0];
     const familyId = Number(familyRow.family_id);
 
-    // все члены этого семейства + similarity к базовой категории (если есть в таблице category_similarity)
+
     const membersRes = await pool.query(
       `
       SELECT
@@ -797,7 +779,7 @@ app.get('/api/categories/:id/family', async (req, res) => {
   }
 });
 
-// Все семейства категорий с их членами
+
 app.get('/api/category-families', async (req, res) => {
   try {
     const result = await pool.query(

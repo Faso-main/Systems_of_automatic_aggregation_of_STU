@@ -4,16 +4,13 @@ from psycopg2.extras import execute_values
 from datetime import datetime
 import os
 
-# --------------------------
-#  ПУТИ К ФАЙЛАМ
-# --------------------------
+
+
 RUNTIME_PATH = os.path.join("result","PROD_runtime_V2_READY.json")
 ITEMS_ITR3_PATH = os.path.join("result","runtime_llm_items_itr3.json")
 ONTOLOGY_PATH = os.path.join("result","UCOV4.json")
 
-# --------------------------
-#  ПОДКЛЮЧЕНИЕ К БД
-# --------------------------
+
 conn = psycopg2.connect(
     dbname="th3_db",
     user="th3_app",
@@ -23,9 +20,7 @@ conn = psycopg2.connect(
 cursor = conn.cursor()
 
 
-# --------------------------
-#  ЧИТАЕМ JSON
-# --------------------------
+
 
 with open(RUNTIME_PATH, "r", encoding="utf-8") as f:
     runtime = json.load(f)
@@ -37,9 +32,7 @@ with open(ONTOLOGY_PATH, "r", encoding="utf-8") as f:
     ontology = json.load(f)
 
 
-# --------------------------
-# 1) generation_run
-# --------------------------
+
 
 cursor.execute("""
     INSERT INTO generation_run (run_type, source_csv, model_name, generated_at, meta)
@@ -54,12 +47,10 @@ cursor.execute("""
 ))
 
 generation_run_id = cursor.fetchone()[0]
-print("✓ generation_run id =", generation_run_id)
+print("generation_run id =", generation_run_id)
 
 
-# --------------------------
-# 2) Категории
-# --------------------------
+
 
 category_rows = []
 
@@ -81,12 +72,10 @@ execute_values(cursor, """
     ON CONFLICT (id) DO NOTHING;
 """, category_rows)
 
-print("✓ Импорт категорий:", len(category_rows))
+print("Импорт категорий:", len(category_rows))
 
 
-# --------------------------
-# 3) Товары
-# --------------------------
+
 
 product_rows = []
 product_feature_rows = []
@@ -124,12 +113,9 @@ execute_values(cursor, """
     ON CONFLICT (id) DO NOTHING;
 """, product_rows)
 
-print("✓ Импорт товаров:", len(product_rows))
+print("Импорт товаров:", len(product_rows))
 
 
-# --------------------------
-# 4) Характеристики категорий
-# --------------------------
 
 category_feature_rows = []
 
@@ -153,12 +139,9 @@ execute_values(cursor, """
     ON CONFLICT DO NOTHING;
 """, category_feature_rows)
 
-print("✓ Импорт характеристик категорий:", len(category_feature_rows))
+print("Импорт характеристик категорий:", len(category_feature_rows))
 
 
-# --------------------------
-# 5) Загрузка характеристик товаров
-# --------------------------
 
 execute_values(cursor, """
     INSERT INTO product_feature
@@ -167,14 +150,12 @@ execute_values(cursor, """
     ON CONFLICT DO NOTHING;
 """, product_feature_rows)
 
-print("✓ Импорт характеристик товаров:", len(product_feature_rows))
+print("Импорт характеристик товаров:", len(product_feature_rows))
 
-# --------------------------
-# Commit
-# --------------------------
+
 
 conn.commit()
 cursor.close()
 conn.close()
 
-print("\n🎉 Готово! Все данные загружены.")
+print("\nГотово! Все данные загружены.")
