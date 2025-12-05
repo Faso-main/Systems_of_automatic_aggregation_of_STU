@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+### НАСТРОЙКИ ПОД ТВОЙ ПРОЕКТ ###
+
+DOMAIN="faso312.ru"
+PROJECT_DIR="/opt/TH3"
+PYTHON_BIN="python3.12"
+VENV_DIR="$PROJECT_DIR/.venv"
+DB_NAME="th3_db"
+DB_USER="th3_app"
+DB_PASSWORD="1234"   # если поменяешь — не забудь обновить конфиги в сервере/бэкенде
+
+EMAIL_LETSENCRYPT="admin@$DOMAIN"  # поменяй при желании
+
+echo "=== [1/9] Установка системных пакетов ==="
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
+  "$PYTHON_BIN" "$PYTHON_BIN-venv" python3-pip \
+  build-essential libpq-dev \
+  nginx \
+  postgresql postgresql-contrib \
+  curl git \
+  snapd
+
+# certbot через snap (рекомендации Let's Encrypt)
+if ! command -v certbot >/dev/null 2>&1; then
+  snap install core || true
+  snap refresh core || true
+  snap install --classic certbot || true
+  ln -sf /snap/bin/certbot /usr/bin/certbot || true
+fi
+
+echo "=== [2/9] Установка Node.js 22 + pm2 ==="
+if ! command -v node >/dev/null 2>&1; then
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
+fi
+
+npm install -g pm2
+
+echo "=== [3/9] Настройка PostgreSQL (роль + БД) ==="
+
+# Роль
+if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" | grep -q 1; then
+  echo "Роль $DB_USER уже существует — ок."
+else
+  echo "Создаю роль $DB_USER..."
+  sudo -u postgres psql -c "CREATE ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASSWORD';"
+fi
+
+# База
+if sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" | grep -q 1; then
+  echo "База $DB_NAME уже существует — ок."
+else
+  echo "Создаю базу $DB_NAME..."
+  sudo -u postgres createdb -O "$DB_USER" "$DB_NAME"
+fi
+
+# Права
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;"
+
+# Схема
+if [ -f "$PROJECT_DIR/db/schema.sql" ]; then
+  echo "=== [3b/9] Заливаю схему БД из db/schema.sql ==="
+  sudo -u postgres psql -d "$DB_NAME" -f "$PROJECT_DIR/db/schema.sql"
+else
+  echo "!!! ВНИМАНИЕ: db/schema.sql не найден, БД без схемы"
+fi
+
+# Дамп с данными (если есть)
+if [ -f "$PROJECT_DIR/db/data.sql" ]; then
+  echo "=== [3c/9] Заливаю данные из db/data.sql ==="
+  sudo -u postgres psql -d "$DB_NAME" -f "$PROJECT_DIR/db/data.sql"
+else
+  echo "=== [3c/9] db/data.sql не найден — пропускаю импорт данных"
+fi
+
+echo "=== [4/9] Python venv + зависимости ==="
+if [ ! -d "$VENV_DIR" ]; then
+  "$PYTHON_BIN" -m venv "$VENV_DIR"
+fi
+
+# shellcheck disable=SC1090
+source "$VENV_DIR/bin/activate"
+pip install --upgrade pip
+pip install -r "$PROJECT_DIR/py_back/requirements.txt"
+
+echo "=== [5/9] Node зависимости backend/front ==="
+cd "$PROJECT_DIR/server"
+npm ci
+
+cd "$PROJECT_DIR/front_app"
+npm ci
+
+echo "=== [6/9] Сборка и деплой фронта ==="
+cd "$PROJECT_DIR/front_app"
+npm run build
+
+echo "[6a] Проверка, что билд есть..."
+if [ ! -d "$PROJECT_DIR/front_app/dist" ]; then
+  echo "!!! Билд фронта не найден (dist), останавливаюсь"
+  exit 1
+fi
+
+echo "[6b] Копирую файлы фронта в /var/www/$DOMAIN..."
+mkdir -p "/var/www/$DOMAIN"
+rsync -a --delete "$PROJECT_DIR/front_app/dist/" "/var/www/$DOMAIN/"
+
+echo "[6c] Права на статику..."
+chown -R www-data:www-data "/var/www/$DOMAIN"
+
+echo "=== [7/9] Nginx конфиг для $DOMAIN (HTTP, проксю на API) ==="
+
+cat >/etc/nginx/sites-available/$DOMAIN <<NGINX
+server {
+    listen 80;
+    server_name $DOMAIN www.$DOMAIN;
+
+    root /var/www/$DOMAIN;
+    index index.html;
+
+    location / {
+        try_files \$uri \$uri/ /index.html;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              \$host;
+        proxy_set_header X-Real-IP         \$remote_addr;
+        proxy_set_header X-Forwarded-For   \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Upgrade           \$http_upgrade;
+        proxy_set_header Connection        "upgrade";
+
+        proxy_set_header If-Modified-Since "";
+        proxy_set_header If-None-Match     "";
+        etag off;
+        expires off;
+        add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+        proxy_cache_bypass 1;
+        proxy_no_cache 1;
+    }
+}
+NGINX
+
+ln -sf "/etc/nginx/sites-available/$DOMAIN" "/etc/nginx/sites-enabled/$DOMAIN"
+rm -f /etc/nginx/sites-enabled/default || true
+
+nginx -t
+systemctl reload nginx
+systemctl enable nginx
+
+echo "=== [7b] (опционально) Настройка HTTPS через certbot ==="
+# Если домен уже указывает на сервер, можно раскомментировать:
+# certbot --nginx -d $DOMAIN -d www.$DOMAIN --non-interactive --agree-tos -m $EMAIL_LETSENCRYPT || true
+# systemctl reload nginx || true
+
+echo "=== [8/9] Настройка pm2 процессов ==="
+cd "$PROJECT_DIR"
+
+# shellcheck disable=SC1090
+source "$VENV_DIR/bin/activate"
+
+# Останавливаем старые процессы, если есть
+pm2 delete th3-search runtime2 server >/dev/null 2>&1 || true
+
+# th3-search (FastAPI, использует py_back/search_service.py)
+pm2 start "$PROJECT_DIR/py_back/search_service.py" \
+  --name th3-search \
+  --interpreter "$VENV_DIR/bin/python" \
+  --cwd "$PROJECT_DIR"
+
+# runtime2 (uvicorn с runtime_llm_itr4:app, порт 8002)
+pm2 start "$VENV_DIR/bin/uvicorn" \
+  --name runtime2 \
+  --cwd "$PROJECT_DIR" \
+  -- \
+  runtime_llm_itr4:app \
+  --app-dir "$PROJECT_DIR/py_back/rexexp" \
+  --host 127.0.0.1 \
+  --port 8002
+
+# server (Node API, порт 5000)
+
+
+pm2 save
+
+echo "=== [9/9] pm2 автозапуск через systemd ==="
+# Правильный способ, без кривого скрипта с текстом
+env PATH=\$PATH:/usr/bin pm2 startup systemd -u root --hp /root
+
+echo "=== ГОТОВО ==="
+echo "Проверка:"
+echo "  - pm2 ls"
+echo "  - curl http://127.0.0.1:5000/api/...  (твои ручки)"
+echo "  - curl http://127.0.0.1:8002/health   (runtime2)"
+echo "  - открыть http://$DOMAIN в браузере"
+echo "Если положить дамп в $PROJECT_DIR/db/data.sql — он будет импортирован автоматически."
