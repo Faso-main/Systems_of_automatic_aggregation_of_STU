@@ -9,3 +9,4 @@ py_back/rexexp/data/result_itr3.csv
 *.safetensors
 */__pycache__/
 front_app/dist/
+.venv/
