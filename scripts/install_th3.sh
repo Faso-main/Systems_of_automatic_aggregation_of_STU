@@ -86,6 +86,9 @@ source "$VENV_DIR/bin/activate"
 pip install --upgrade pip
 pip install -r "$PROJECT_DIR/py_back/requirements.txt"
 
+python import/import_products_from_csv.py
+python import/etl_ontology_v4_to_pg.py
+
 echo "=== [5/9] Node зависимости backend/front ==="
 cd "$PROJECT_DIR/server"
 npm ci
