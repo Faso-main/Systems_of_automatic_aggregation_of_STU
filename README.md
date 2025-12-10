@@ -4,7 +4,7 @@
 
 ---
 
-![решение в продакшене](readme/prod.mp4)
+[![Демо видео](https://img.youtube.com/vi/E7ienT90EVE/0.jpg)](https://www.youtube.com/watch?v=E7ienT90EVE)
 
 ### Архитектура и поток обработки
 
